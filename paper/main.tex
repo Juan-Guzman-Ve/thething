@@ -1,0 +1,145 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+% TODO: completar con tus datos.
+\title{Sistema de Detecci\'on de Anomal\'ias Financieras Personales}
+
+\author{
+  \IEEEauthorblockN{Juan Guzman}
+  \IEEEauthorblockA{
+    Universidad de Palermo\\
+    Trabajo Final de Grado\\
+  }
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+% TODO
+\end{abstract}
+
+\begin{IEEEkeywords}
+% TODO
+\end{IEEEkeywords}
+
+\section{Introducci\'on}
+% TODO
+
+\section{Investigaci\'on Bibliogr\'afica}
+\label{sec:investigacion-bibliografica}
+% NOTA: secci\'on pedida puntualmente por la consigna de esta actividad (10 a 15 referencias con una breve
+% descripci\'on cada una). Pensada para eliminarse m\'as adelante, cuando las referencias se citen directamente
+% a lo largo del texto (Secci\'on \ref{sec:marco-teorico} y siguientes) con \cite{}.
+
+\begin{enumerate}
+  \item \textbf{Liu, F. T., Ting, K. M., \& Zhou, Z.-H. (2008).} \emph{Isolation Forest} \cite{liu2008isolation}.
+  Paper original del algoritmo: en vez de perfilar el comportamiento normal, aísla directamente las
+  observaciones mediante particiones aleatorias del espacio de atributos. Es la base te\'orica del modelo que
+  se va a entrenar en la Etapa 2 de este proyecto.
+
+  \item \textbf{Liu, F. T., Ting, K. M., \& Zhou, Z.-H. (2012).} \emph{Isolation-Based Anomaly Detection}
+  \cite{liu2012isolation}. Versi\'on extendida (journal) del paper anterior, con un desarrollo m\'as detallado
+  del puntaje de anomal\'ia basado en la profundidad promedio de aislamiento (\emph{path length}).
+
+  \item \textbf{Chandola, V., Banerjee, A., \& Kumar, V. (2009).} \emph{Anomaly Detection: A Survey}
+  \cite{chandola2009anomaly}. Survey m\'as citado del \'area de detecci\'on de anomal\'ias en general; clasifica
+  los enfoques en supervisados, semi-supervisados y no supervisados.
+
+  \item \textbf{Ahmed, M., Mahmood, A. N., \& Islam, M. R. (2016).} \emph{A Survey of Anomaly Detection
+  Techniques in Financial Domain} \cite{ahmed2016survey}. Survey enfocado espec\'ificamente en el dominio
+  financiero (fraude, lavado de dinero, comportamiento at\'ipico de cuentas).
+
+  \item \textbf{Ounacer, S. et al. (2018).} \emph{Using Isolation Forest in Anomaly Detection: The Case of
+  Credit Card Transactions} \cite{ounacer2018isolation}. Compara Isolation Forest contra LOF, One-Class SVM y
+  K-means para detecci\'on de fraude en tarjetas de cr\'edito.
+
+  \item \textbf{Vijayakumar, V., Divya, N. S., Sarojini, P., \& Sonika, K. (2020).} \emph{Isolation Forest and
+  Local Outlier Factor for Credit Card Fraud Detection System} \cite{vijayakumar2020isolation}. Aplica Isolation
+  Forest y LOF para identificar predictivamente pagos fraudulentos con tarjeta de cr\'edito.
+
+  \item \textbf{Dal Pozzolo, A., Boracchi, G., Caelen, O., Alippi, C., \& Bontempi, G. (2018).} \emph{Credit
+  Card Fraud Detection: A Realistic Modeling and a Novel Learning Strategy} \cite{dalpozzolo2018credit}. Aborda
+  c\'omo evaluar de forma realista un modelo de fraude cuando las etiquetas reales son escasas; metodol\'ogicamente
+  relevante para la forma en que este proyecto eval\'ua contra \texttt{data/eval\_labels.csv}.
+
+  \item \textbf{Schreyer, M., Sattarov, T., Borth, D., Dengel, A., \& Reimer, B. (2017).} \emph{Detection of
+  Anomalies in Large-Scale Accounting Data Using Deep Autoencoder Networks} \cite{schreyer2017detection}.
+  Propone autoencoders profundos no supervisados para detectar asientos contables an\'omalos; un enfoque
+  alternativo a Isolation Forest para contrastar en el marco te\'orico.
+
+  \item \textbf{Leveraging Machine Learning for Predictive Budgeting and Anomaly Detection in Personal Finance
+  (2025)} \cite{budgeting2025ml}. El trabajo m\'as cercano en alcance a este proyecto: aplica ML a nivel de
+  finanzas personales (presupuesto y anomal\'ias), aunque sin entrenar un modelo individual por usuario.
+
+  \item \textbf{Al-Bulushi, A., Shaikh, A. K., \& Adhikari, N. (2026).} \emph{Applying Supervised Machine
+  Learning Algorithms and Ensemble Models to Enhance Credit Card Fraud Detection} \cite{albulushi2026applying}.
+  Publicado en 2026 (Frontiers in Artificial Intelligence); eval\'ua algoritmos supervisados y de ensamble para
+  fraude con tarjeta, evidencia de que el \'area sigue activa este a\~no.
+
+  \item \textbf{Feng, X., \& Kim, S.-K. (2026).} \emph{Machine Learning-Based Data Generative Techniques for
+  Credit Card Fraud-Detection Systems} \cite{feng2026machine}. Publicado en 2026 (Mathematics, MDPI); usa
+  t\'ecnicas generativas para lidiar con la escasez de datos etiquetados de fraude.
+
+  \item \textbf{Gamal, N., Younis, E. M. G., \& Makram, W. M. (2026).} \emph{Enhancing Credit Card Fraud
+  Detection with a Hybrid Approach Using Machine and Deep Learning} \cite{gamal2026enhancing}. Publicado en 2026
+  (Scientific Reports); combina ML cl\'asico y deep learning con sampling h\'ibrido para el desbalance de clases.
+
+  \item \textbf{Cao, H. (2026).} \emph{Interpretable Financial Time Series Anomaly Detection Based on Frequency
+  Domain Features and Enhanced Sparse Attention} \cite{cao2026interpretable}. Publicado en 2026 (Applied
+  Intelligence); propone un m\'odulo de atenci\'on que mejora la interpretabilidad de las alertas, relevante
+  para la explicaci\'on que el dashboard de la Etapa 3 debe mostrar.
+
+  \item \textbf{Lodhi, A. (2026).} \emph{Explainable Artificial Intelligence for Anomaly Detection in Banking
+  Transactions: An Internal Audit Perspective} \cite{lodhi2026explainable}. Preprint de 2026 (a\'un sin revisi\'on
+  por pares) que combina expl\'icitamente Isolation Forest con SHAP y un dashboard simple (Streamlit) para
+  explicar alertas a usuarios no expertos; el enfoque m\'as directamente aplicable a la Etapa 3 de este proyecto.
+
+  \item \textbf{Gopalakrishnan, V. (2026).} \emph{SilIF: Silhouette-Augmented Isolation Forest for Unsupervised
+  Transaction Fraud Detection} \cite{gopalakrishnan2026silif}. Preprint de 2026 (a\'un sin revisi\'on por pares)
+  que agrega un puntaje basado en silueta sobre la representaci\'on de \'arboles de Isolation Forest, mejorando
+  el AUC-PR en el benchmark IEEE-CIS Fraud Detection.
+\end{enumerate}
+
+\section{Marco Te\'orico y Trabajos Relacionados}
+\label{sec:marco-teorico}
+% TODO — todas las referencias de la Secci\'on \ref{sec:investigacion-bibliografica} ya est\'an en
+% references.bib, listas para citar ac\'a con \cite{}.
+
+\section{Metodolog\'ia Propuesta}
+\label{sec:metodologia}
+
+\subsection{Dataset}
+% TODO
+
+\subsection{Preprocesamiento y Features}
+% TODO
+
+\subsection{Modelo}
+% TODO
+
+\subsection{Evaluaci\'on}
+% TODO
+
+\section{Resultados Preliminares}
+\label{sec:resultados}
+% TODO
+
+\section{Conclusiones y Trabajo Futuro}
+\label{sec:conclusiones}
+% TODO
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

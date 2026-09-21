@@ -3,7 +3,7 @@
 ## Etapa 1 — hasta 15/9 (entrega: referencias bibliográficas)
 - [x] Definir tipos de movimientos anómalos (aumento de precio, cargo duplicado, monto atípico)
 - [x] Recolectar resúmenes reales propios (CSV) de cuenta/tarjeta (`notebooks/resumen_tarjeta_cierre_*.csv`)
-- [ ] Reunir referencias bibliográficas para la entrega de la cátedra
+- [x] Reunir referencias bibliográficas para la entrega de la cátedra (`referencias_bibliograficas.md`, `paper/references.bib`)
 
 ## Etapa 2 — hasta 6/10 (entrega: esqueleto del paper + marco teórico)
 - [ ] Preprocesar datos (features: monto, día/hora, desvío vs. historial por comercio/categoría)

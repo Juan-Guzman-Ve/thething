@@ -19,13 +19,20 @@ precio no avisados, cargos duplicados, montos atípicos) usando un modelo no sup
 - `dashboard/` — vacío todavía (Etapa 3).
 - `tools/setup.ps1` — script de setup del entorno.
 - `src/` — vacío por ahora (se eliminó `generate_mock_data.py`, ver "Decisiones").
+- `referencias_bibliograficas.md` — 20 referencias académicas (6 de 2026) para la entrega de Etapa 1.
+- `paper/` — proyecto LaTeX del paper (formato IEEE, dos columnas), pensado para subir/sincronizar con Overleaf.
+  `main.tex` tiene el esqueleto (secciones vacías con `% TODO`) más una sección "Investigación Bibliográfica"
+  con 15 de las 20 referencias (6 de 2026) y una breve descripción de cada una, pedida puntualmente por la
+  consigna de la actividad de Etapa 1 (10 a 15 referencias); se puede borrar más adelante cuando se cite
+  directamente en el cuerpo del texto. `references.bib` tiene las 20 referencias en formato BibTeX (las 5 que
+  no entraron en esa sección quedan igual disponibles para citar en el Marco Teórico).
 
 ## Avances
 
 ### Etapa 1
 - Tipos de anomalía definidos: `aumento_precio`, `cargo_duplicado`, `monto_atipico`.
 - Se cargaron 14 resúmenes reales propios en `notebooks/` (abril 2025 a abril 2026).
-- Pendiente: reunir referencias bibliográficas.
+- Referencias bibliográficas reunidas (`referencias_bibliograficas.md`, `paper/references.bib`).
 
 ### Preparación para evaluación (sin ground truth real)
 Como los resúmenes reales no traen labels de anomalías, se inyectaron 3 anomalías
@@ -54,4 +61,5 @@ El resto de las transacciones son reales y no tienen alteraciones.
    desvío vs. historial por comercio/categoría.
 2. Entrenar Isolation Forest (scikit-learn) en Google Colab.
 3. Evaluar contra `data/eval_labels.csv`.
-4. Redactar esqueleto del paper + marco teórico.
+4. ~~Redactar esqueleto del paper + marco teórico.~~ Hecho, ver `paper/main.tex` — falta completar
+   Metodología/Resultados/Conclusiones a medida que avanzan los puntos 1-3.
