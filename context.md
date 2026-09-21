@@ -12,7 +12,6 @@ precio no avisados, cargos duplicados, montos atípicos) usando un modelo no sup
 
 - `notebooks/` — resúmenes de tarjeta reales, uno por cierre mensual
   (`resumen_tarjeta_cierre_YYYY-MM-DD.csv`, columnas: `fecha,descripcion,monto,moneda`).
-  `2026-03-26` tiene dos versiones (`_v1`, `_v2`) sin resolver todavía cuál usar.
 - `notebooks/_originals_backup/` — copia sin modificar de los 3 CSV en los que se
   inyectaron anomalías sintéticas (ver más abajo), por si hace falta revertir o comparar.
 - `data/eval_labels.csv` — ground truth de las anomalías sintéticas inyectadas, para
