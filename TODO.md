@@ -6,7 +6,7 @@
 - [x] Reunir referencias bibliográficas para la entrega de la cátedra (`referencias_bibliograficas.md`, `paper/references.bib`)
 
 ## Etapa 2 — hasta 6/10 (entrega: esqueleto del paper + marco teórico)
-- [ ] Preprocesar datos (features: monto, día/hora, desvío vs. historial por comercio/categoría)
+- [x] Preprocesar datos (features: monto, día/hora, desvío vs. historial por comercio/categoría) (`src/preprocess.py` → `data/dataset_features.csv`)
 - [ ] Entrenar primer modelo Isolation Forest (scikit-learn) en Google Colab
 - [ ] Evaluar el modelo contra `data/transacciones_mock_labels.csv`
 - [ ] Redactar esqueleto del paper + marco teórico
