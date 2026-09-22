@@ -7,8 +7,8 @@
 
 ## Etapa 2 — hasta 6/10 (entrega: esqueleto del paper + marco teórico)
 - [x] Preprocesar datos (features: monto, día/hora, desvío vs. historial por comercio/categoría) (`src/preprocess.py` → `data/dataset_features.csv`)
-- [ ] Entrenar primer modelo Isolation Forest (scikit-learn) en Google Colab
-- [ ] Evaluar el modelo contra `data/transacciones_mock_labels.csv`
+- [x] Entrenar primer modelo Isolation Forest (scikit-learn) localmente (`src/train_model.py`)
+- [x] Evaluar el modelo contra `data/eval_labels.csv`
 - [ ] Redactar esqueleto del paper + marco teórico
 
 ## Etapa 3 — hasta 27/10 (entrega: desarrollo del paper + prueba de concepto)
