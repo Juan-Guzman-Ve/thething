@@ -1,9 +1,8 @@
-"""
-Carga todos los resúmenes de tarjeta de notebooks/ y genera data/transactions.csv
-con features listos para entrenar Isolation Forest.
+"""Unifica los resumenes de tarjeta (notebooks/resumen_tarjeta_cierre_*.csv) en un
+unico dataset de features para el modelo de deteccion de anomalias.
 
-Uso:
-    .venv\\Scripts\\python.exe src\\preprocess.py
+Uso: desde la raiz del repo -> .venv\\Scripts\\python.exe src\\preprocess.py
+Genera data/dataset_features.csv.
 """
 
 import re
@@ -12,135 +11,132 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-NOTEBOOKS_DIR = Path(__file__).parent.parent / "notebooks"
-OUTPUT_PATH = Path(__file__).parent.parent / "data" / "transactions.csv"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+NOTEBOOKS_DIR = REPO_ROOT / "notebooks"
+OUTPUT_PATH = REPO_ROOT / "data" / "dataset_features.csv"
 
-# Patrones de filas que no son compras (pagos, impuestos, comisiones bancarias)
-NON_PURCHASE_RE = re.compile(
-    r"^(SU PAGO EN|CR\.RG|CR IVA|DB IVA|DB\.RG|IIBB PERCEP|IVA RG 4240|"
-    r"COMISION CTA PWORLD|DEV COMISION|INTERESES FINANCIACION)",
-    re.IGNORECASE,
-)
+# Grupo minimo de transacciones para confiar en las estadisticas del comercio;
+# por debajo de eso se usa la categoria como respaldo.
+MIN_TRANSACCIONES_COMERCIO = 3
 
-# Prefijos de intermediarios que no aportan info del comercio real
-STRIP_PREFIXES_RE = re.compile(
-    r"^(MERPAGO\*|PAYU\*AR\*|DLO\*|PEDIDOSYA\*|WL \*|PVS\*|PROPINA\*)",
-    re.IGNORECASE,
-)
+PREFIJOS_PROCESADOR = [
+    r"^MERPAGO\*",
+    r"^DLO\*",
+    r"^PAYU\*AR\*",
+    r"^WL \*",
+    r"^GOOGLE \*",
+    r"^PROPINA\*",
+]
 
-# Sufijo con ID de transacción y monto en descripción (ej. "P1j4VeeA USD 19,99")
-STRIP_SUFFIX_RE = re.compile(r"\s+[A-Za-z0-9]+\s+USD\s+[\d,\.]+$", re.IGNORECASE)
-
-
-def normalize_merchant(desc: str) -> str:
-    desc = STRIP_PREFIXES_RE.sub("", desc)
-    desc = STRIP_SUFFIX_RE.sub("", desc)
-    # "Spotify USD 3,95" → "Spotify"
-    desc = re.sub(r"\s+USD\s+[\d,\.]+$", "", desc, flags=re.IGNORECASE)
-    # Números de cuenta en servicios como CLARO, ABL, etc.
-    desc = re.sub(r"\s+\d{6,}$", "", desc)
-    return desc.strip().upper()
-
-
-def detect_currency(row) -> str:
-    """Algunos cargos en USD vienen con moneda=ARS en el export del banco."""
-    if row["moneda"] == "USD":
-        return "USD"
-    if re.search(r"\bUSD\b", row["descripcion"], re.IGNORECASE):
-        return "USD"
-    return "ARS"
+# Reglas de categorizacion por palabra clave sobre el comercio ya normalizado.
+# Se evaluan en orden; la primera que matchea gana.
+REGLAS_CATEGORIA = [
+    ("delivery", r"RAPPI|PEDIDOSYA"),
+    ("streaming_suscripciones", r"SPOTIFY|NETFLIX|GOOGLE|STEAM|YOUTUBE|HOSTINGER"),
+    ("supermercado", r"COTO|JUMBO|CARREFOUR|DIA TIENDA|SUPERDIA|MARKET PALERMO|FARMACITY"),
+    ("comida_rapida_bares", r"BURGER KING|MCDONALDS|KANSAS|SBUX|ACAI BRASIL|BULLER|JAY|EL FARO"),
+    ("transporte", r"SUBE|UBER"),
+    ("servicios_hogar", r"METROGAS|EDENOR|AYSA|ABL |IPLAN|CLARO"),
+    ("impuestos_banco", r"^SU PAGO|^CR\.|^DB\.|^DB IVA|^CR IVA|IIBB PERCEP|IVA RG|COMISION CTA|DEV COMISION|FUND UNIV"),
+]
 
 
-def load_all() -> pd.DataFrame:
+def normalizar_comercio(descripcion: str) -> str:
+    """Colapsa variantes del mismo comercio (prefijos de procesador, numeros de
+    sucursal/tarjeta, montos embebidos) a un nombre canonico para poder agrupar
+    el historial de cada comercio."""
+    nombre = descripcion.upper().strip()
+    for prefijo in PREFIJOS_PROCESADOR:
+        nombre = re.sub(prefijo, "", nombre)
+    # Quita montos/códigos embebidos entre comillas, ej: 'USD 5,50', 'P1j4VeeA'
+    nombre = re.sub(r"\bUSD\s*[\d.,]+\b", "", nombre)
+    nombre = re.sub(r"[A-Z0-9]{8,}", "", nombre)
+    # Quita numeros de sucursal/tramite al final (ej: 'COTO SUCURSAL 24' -> 'COTO SUCURSAL')
+    nombre = re.sub(r"\s+\d+[\d.,%()\- ]*$", "", nombre)
+    nombre = re.sub(r"\s+", " ", nombre).strip()
+    return nombre or descripcion.upper().strip()
+
+
+def categorizar(comercio: str) -> str:
+    for categoria, patron in REGLAS_CATEGORIA:
+        if re.search(patron, comercio):
+            return categoria
+    return "otros"
+
+
+def cargar_resumenes() -> pd.DataFrame:
+    archivos = sorted(NOTEBOOKS_DIR.glob("resumen_tarjeta_cierre_*.csv"))
     dfs = []
-    for csv_path in sorted(NOTEBOOKS_DIR.glob("resumen_tarjeta_cierre_*.csv")):
-        # Ignorar archivos versionados (_v1, _v2) si quedaron
-        if re.search(r"_v\d+\.csv$", csv_path.name):
-            continue
-        df = pd.read_csv(csv_path)
-        df["archivo"] = csv_path.name
-        cierre_str = csv_path.stem.replace("resumen_tarjeta_cierre_", "")
-        df["cierre"] = pd.to_datetime(cierre_str)
+    for archivo in archivos:
+        df = pd.read_csv(archivo)
+        df["archivo"] = archivo.name
         dfs.append(df)
-    result = pd.concat(dfs, ignore_index=True)
-    print(f"CSVs cargados: {len(dfs)} archivos, {len(result)} filas totales")
-    return result
+    return pd.concat(dfs, ignore_index=True)
 
 
-def preprocess() -> pd.DataFrame:
-    df = load_all()
-
-    df["fecha"] = pd.to_datetime(df["fecha"])
-
-    # Filtrar filas que no son compras
-    mask_non_purchase = df["descripcion"].apply(lambda d: bool(NON_PURCHASE_RE.match(d)))
-    df = df[~mask_non_purchase].copy()
-
-    # Mantener solo montos positivos (descartar pagos, créditos, bonificaciones)
+def construir_features(df: pd.DataFrame) -> pd.DataFrame:
+    # Se descartan pagos, devoluciones, bonificaciones y ajustes (monto <= 0):
+    # no son cargos y no tiene sentido evaluarlos como "compra anomala", ademas
+    # de que mezclarlos con los cargos reales distorsiona las medias/ratios por
+    # comercio-categoria.
     df = df[df["monto"] > 0].copy()
-
-    df["moneda_real"] = df.apply(detect_currency, axis=1)
-    df["comercio"] = df["descripcion"].apply(normalize_merchant)
+    df["fecha"] = pd.to_datetime(df["fecha"])
+    df["comercio"] = df["descripcion"].map(normalizar_comercio)
+    df["categoria"] = df["comercio"].map(categorizar)
     df["dia_semana"] = df["fecha"].dt.dayofweek
+    df["dia_mes"] = df["fecha"].dt.day
     df["mes"] = df["fecha"].dt.month
 
-    # Estadísticas históricas por comercio + moneda
-    hist = (
-        df.groupby(["comercio", "moneda_real"])["monto"]
-        .agg(mediana_hist="median", std_hist="std", n_hist="count")
-        .reset_index()
+    # Estadisticas historicas por comercio+moneda; si el comercio no tiene
+    # suficientes transacciones para ser representativo, se cae a categoria+moneda.
+    stats_comercio = df.groupby(["comercio", "moneda"])["monto"].agg(["mean", "std", "count"])
+    stats_categoria = df.groupby(["categoria", "moneda"])["monto"].agg(["mean", "std", "count"])
+
+    claves_comercio = list(zip(df["comercio"], df["moneda"]))
+    claves_categoria = list(zip(df["categoria"], df["moneda"]))
+
+    n_hist_comercio = stats_comercio["count"].reindex(claves_comercio).to_numpy()
+    usa_categoria = n_hist_comercio < MIN_TRANSACCIONES_COMERCIO
+
+    media = np.where(
+        usa_categoria,
+        stats_categoria["mean"].reindex(claves_categoria).to_numpy(),
+        stats_comercio["mean"].reindex(claves_comercio).to_numpy(),
     )
-    df = df.merge(hist, on=["comercio", "moneda_real"], how="left")
-
-    # Ratio vs. mediana histórica (principal feature para aumento_precio y monto_atipico)
-    df["ratio_mediana"] = df["monto"] / df["mediana_hist"]
-
-    # Z-score (solo fiable con al menos 3 apariciones)
-    df["zscore_hist"] = np.where(
-        (df["std_hist"] > 0) & (df["n_hist"] >= 3),
-        (df["monto"] - df["mediana_hist"]) / df["std_hist"],
-        0.0,
+    desvio = np.where(
+        usa_categoria,
+        stats_categoria["std"].reindex(claves_categoria).to_numpy(),
+        stats_comercio["std"].reindex(claves_comercio).to_numpy(),
     )
+    desvio = np.nan_to_num(desvio, nan=0.0)
 
-    # Feature de duplicado: mismo comercio + monto + fecha exacta
-    df["es_duplicado"] = df.duplicated(
-        subset=["comercio", "monto", "fecha"], keep=False
-    ).astype(int)
+    df["grupo_referencia"] = np.where(usa_categoria, "categoria", "comercio")
+    df["monto_medio_hist"] = media
+    df["monto_ratio_hist"] = df["monto"] / media.clip(min=1e-9)
+    # z-score con piso para evitar division por cero cuando el desvio historico es 0
+    df["monto_zscore_hist"] = (df["monto"] - media) / np.maximum(desvio, media.clip(min=1e-9) * 0.05)
 
-    # Log-monto para el modelo (reduce el efecto de escala ARS vs USD)
-    df["log_monto"] = np.log1p(df["monto"])
+    # Duplicados exactos: mismo comercio + monto + fecha (indicio directo de cargo_duplicado)
+    claves_dup = ["fecha", "comercio", "monto", "moneda"]
+    df["n_duplicados_exactos"] = df.groupby(claves_dup)["monto"].transform("count") - 1
 
-    df = df.reset_index(drop=True)
-    return df
+    columnas = [
+        "archivo", "fecha", "descripcion", "comercio", "categoria",
+        "monto", "moneda", "dia_semana", "dia_mes", "mes",
+        "grupo_referencia", "monto_medio_hist", "monto_ratio_hist",
+        "monto_zscore_hist", "n_duplicados_exactos",
+    ]
+    return df[columnas].sort_values(["fecha", "archivo"]).reset_index(drop=True)
 
 
-def main():
-    df = preprocess()
+def main() -> None:
+    crudo = cargar_resumenes()
+    features = construir_features(crudo)
     OUTPUT_PATH.parent.mkdir(exist_ok=True)
-    df.to_csv(OUTPUT_PATH, index=False)
-    print(f"\nGuardado: {OUTPUT_PATH}  ({len(df)} filas)")
-
-    print("\n--- Muestra de features ---")
-    cols = ["archivo", "fecha", "comercio", "monto", "moneda_real",
-            "ratio_mediana", "zscore_hist", "es_duplicado"]
-    print(df[cols].head(10).to_string(index=False))
-
-    print("\n--- Verificación contra ground truth ---")
-    labels = pd.read_csv(Path(__file__).parent.parent / "data" / "eval_labels.csv")
-    for _, row in labels.iterrows():
-        match = df[
-            (df["archivo"] == row["archivo"]) &
-            (df["monto"] == row["monto"])
-        ]
-        if match.empty:
-            print(f"  NO ENCONTRADO: {row['archivo']} monto={row['monto']}")
-        else:
-            r = match.iloc[0]
-            print(
-                f"  [{row['tipo_anomalia']}] {r['comercio']}  "
-                f"monto={r['monto']}  ratio={r['ratio_mediana']:.2f}  "
-                f"z={r['zscore_hist']:.2f}  dup={r['es_duplicado']}"
-            )
+    features.to_csv(OUTPUT_PATH, index=False)
+    print(f"{len(features)} transacciones procesadas -> {OUTPUT_PATH}")
+    print(f"Comercios distintos: {features['comercio'].nunique()}")
+    print(features["categoria"].value_counts())
 
 
 if __name__ == "__main__":
