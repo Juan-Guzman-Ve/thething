@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scores Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p style="color:var(--text2)">Cargando data/scores.csv...</p>
+  </div>
+
+  <!-- Error -->
+  <div id="error-state" hidden>
+    <div class="error-box">
+      <h2>No se pudo cargar el archivo</h2>
+      <p>Asegurate de estar ejecutando el servidor desde la raiz del repo:</p>
+      <code>.\tools\serve.ps1</code>
+      <p>Si el servidor ya esta corriendo, verifica que <strong>data/scores.csv</strong> exista:</p>
+      <code>.\tools\train.ps1</code>
+      <p id="error-msg" style="margin-top:12px"></p>
+      <div id="error-detail" class="error-detail" hidden></div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="app" hidden>
+
+    <div class="header">
+      <div class="header-left">
+        <h1>Scores Explorer</h1>
+        <p>data/scores.csv &middot; Isolation Forest &middot; contamination 4%</p>
+      </div>
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-val" id="kpi-total">--</div>
+          <div class="kpi-lbl">Transacciones</div>
+        </div>
+        <div class="kpi c-danger">
+          <div class="kpi-val" id="kpi-flagged">--</div>
+          <div class="kpi-lbl">Flaggeadas</div>
+        </div>
+        <div class="kpi c-warn">
+          <div class="kpi-val" id="kpi-score">--</div>
+          <div class="kpi-lbl">Score min.</div>
+        </div>
+        <div class="kpi c-accent">
+          <div class="kpi-val">3 / 3</div>
+          <div class="kpi-lbl">Recall GT</div>
+        </div>
+      </div>
+    </div>
+
+    <main>
+
+      <!-- Alertas -->
+      <section>
+        <div class="section-eye">Transacciones flaggeadas como anomalas</div>
+        <div class="alert-grid" id="alert-grid"></div>
+      </section>
+
+      <!-- Histograma -->
+      <section>
+        <div class="section-eye">Distribucion de anomaly score -- umbral de corte marcado</div>
+        <div class="hist-card">
+          <div class="hist-title">Todos los scores &middot; rojo = flaggeadas &middot; teal = normales</div>
+          <svg id="hist-svg" viewBox="0 0 800 140" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+      </section>
+
+      <!-- Tabla -->
+      <section>
+        <div class="section-eye">Todas las transacciones -- click en una fila para ver detalle</div>
+        <div id="year-carousel" class="year-carousel"></div>
+        <div class="controls">
+          <div class="search-wrap">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/>
+              <line x1="10.5" y1="10.5" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input type="search" id="search" placeholder="Buscar por comercio..." autocomplete="off">
+          </div>
+          <div class="filter-group">
+            <button class="filter-btn active" data-filter="all">Todas</button>
+            <button class="filter-btn" data-filter="flagged">Solo flaggeadas</button>
+          </div>
+          <div class="count-badge" id="row-count">-- filas</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-col="rank">Rk</th>
+                <th data-col="comercio">Comercio</th>
+                <th data-col="monto">Monto</th>
+                <th data-col="moneda_real">Moneda</th>
+                <th data-col="fecha">Fecha</th>
+                <th data-col="ratio_mediana">Ratio hist.</th>
+                <th data-col="zscore_hist">Z-score</th>
+                <th data-col="es_duplicado">Dup</th>
+                <th data-col="anomaly_score">Score</th>
+                <th data-col="is_anomaly">Flag</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Diccionario -->
+      <details>
+        <summary>Diccionario de datos -- que significa cada columna?</summary>
+        <div class="dict-grid" id="dict-grid"></div>
+      </details>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

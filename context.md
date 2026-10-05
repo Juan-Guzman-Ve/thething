@@ -12,14 +12,14 @@ precio no avisados, cargos duplicados, montos atípicos) usando un modelo no sup
 
 - `notebooks/` — resúmenes de tarjeta reales, uno por cierre mensual
   (`resumen_tarjeta_cierre_YYYY-MM-DD.csv`, columnas: `fecha,descripcion,monto,moneda`).
-  `2026-03-26` tiene dos versiones (`_v1`, `_v2`) sin resolver todavía cuál usar.
 - `notebooks/_originals_backup/` — copia sin modificar de los 3 CSV en los que se
   inyectaron anomalías sintéticas (ver más abajo), por si hace falta revertir o comparar.
 - `data/eval_labels.csv` — ground truth de las anomalías sintéticas inyectadas, para
   evaluar el modelo (los datos reales no tienen labels).
 - `dashboard/` — vacío todavía (Etapa 3).
 - `tools/setup.ps1` — script de setup del entorno.
-- `src/` — vacío por ahora (se eliminó `generate_mock_data.py`, ver "Decisiones").
+- `src/preprocess.py` — carga todos los CSVs, filtra filas no-compra, y genera features para el modelo.
+- `data/transactions.csv` — dataset preprocesado (613 filas, generado por `preprocess.py`).
 
 ## Avances
 
@@ -48,11 +48,16 @@ El resto de las transacciones son reales y no tienen alteraciones.
   los resúmenes reales, el dataset mock completo ya no es necesario. En su lugar, la
   evaluación se resuelve inyectando anomalías puntuales sobre datos reales (ver arriba).
 
+## Avances (Etapa 2)
+
+- `src/preprocess.py` implementado: carga 13 CSVs (738 filas brutas → 613 compras),
+  normaliza nombres de comercio, detecta moneda real (algunos USD vienen marcados ARS en
+  el export), y genera features: `ratio_mediana`, `zscore_hist`, `es_duplicado`, `log_monto`.
+- Verificación contra ground truth: los 3 anomalías sintéticas se detectan con señales
+  claras (aumento_precio z=2.79, cargo_duplicado dup=1, monto_atipico z=3.75).
+
 ## Próximos pasos (Etapa 2)
 
-1. Preprocesar todos los `notebooks/resumen_tarjeta_cierre_*.csv` en un único dataset:
-   features de monto, día/hora (no disponible en los datos reales, solo `fecha`), y
-   desvío vs. historial por comercio/categoría.
-2. Entrenar Isolation Forest (scikit-learn) en Google Colab.
-3. Evaluar contra `data/eval_labels.csv`.
-4. Redactar esqueleto del paper + marco teórico.
+1. Entrenar Isolation Forest con `src/train.py` — puede correrse localmente, scikit-learn ya instalado.
+2. Evaluar contra `data/eval_labels.csv` y calcular precision/recall.
+3. Redactar esqueleto del paper + marco teórico.
