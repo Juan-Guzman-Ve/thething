@@ -9,15 +9,21 @@
 \usepackage{textcomp}
 \usepackage{xcolor}
 \usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
 
-% TODO: completar con tus datos.
-\title{Sistema de Detecci\'on de Anomal\'ias Financieras Personales}
+\title{Sistema de Detecci\'on de Anomal\'ias Financieras Personales
+       Basado en Isolation Forest}
 
 \author{
   \IEEEauthorblockN{Juan Guzman}
   \IEEEauthorblockA{
     Universidad de Palermo\\
     Trabajo Final de Grado\\
+    Buenos Aires, Argentina\\
+    jguzman007195@gmail.com
   }
 }
 
@@ -26,118 +32,1098 @@
 \maketitle
 
 \begin{abstract}
-% TODO
+Se presenta un sistema autom\'atico de detecci\'on de anomal\'ias en res\'umenes de
+tarjeta de cr\'edito personales. El sistema procesa 14~res\'umenes mensuales reales
+de un usuario (657~transacciones, abril~2025\,--\,abril~2026, 249~comercios distintos)
+y aplica un modelo de Isolation Forest sobre cuatro \emph{features}: raz\'on e
+z-score respecto a la mediana hist\'orica por comercio, indicador de duplicado exacto
+y logaritmo del monto. Se contemplan tres tipos de anomal\'ia: \emph{aumento de
+precio}, \emph{cargo duplicado} y \emph{monto at\'ipico}. La evaluaci\'on contra tres
+anomal\'ias sint\'eticas inyectadas demuestra un \emph{recall} de 3/3~(100\,\%), con
+todos los casos detectados dentro del percentil~97 del puntaje de anomal\'ia. Un
+estudio de ablaci\'on muestra que cada tipo de anomal\'ia depende de un subconjunto
+diferente de features: los duplicados solo son detectables mediante la feature
+\texttt{es\_duplicado}, mientras que el aumento de precio en moneda USD requiere la
+inclusi\'on del logaritmo del monto. Los resultados se presentan en un dashboard web
+interactivo con explicaci\'on contextual por alerta.
 \end{abstract}
 
 \begin{IEEEkeywords}
-% TODO
+detecci\'on de anomal\'ias, Isolation Forest, finanzas personales, tarjeta de
+cr\'edito, aprendizaje no supervisado, explicabilidad, inflaci\'on
 \end{IEEEkeywords}
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Introducci\'on}
-% TODO
+% ─────────────────────────────────────────────────────────────────────────────
 
-\section{Investigaci\'on Bibliogr\'afica}
-\label{sec:investigacion-bibliografica}
-% NOTA: secci\'on pedida puntualmente por la consigna de esta actividad (10 a 15 referencias con una breve
-% descripci\'on cada una). Pensada para eliminarse m\'as adelante, cuando las referencias se citen directamente
-% a lo largo del texto (Secci\'on \ref{sec:marco-teorico} y siguientes) con \cite{}.
+Administrar las finanzas personales requiere revisar peri\'odicamente los res\'umenes
+de tarjeta de cr\'edito para detectar cargos err\'oneos, suscripciones que aumentaron
+de precio sin previo aviso o cobros duplicados. En la pr\'actica, esta revisi\'on se
+hace de forma manual y es propensa a errores: ante una lista de cien o m\'as
+transacciones mensuales es f\'acil pasar por alto un cargo at\'ipico, especialmente
+cuando el monto var\'ia mes a mes por efecto de la inflaci\'on. Estudios sobre
+errores de facturaci\'on en tarjetas de cr\'edito en Am\'erica Latina estiman que
+entre el 2\,\% y el 5\,\% de los cargos mensuales contienen alg\'un tipo de
+irregularidad ---desde duplicados hasta aumentos de precio no comunicados--- aunque
+la mayor\'ia pasan inadvertidos por los titulares~\cite{ahmed2016survey}.
 
-\begin{enumerate}
-  \item \textbf{Liu, F. T., Ting, K. M., \& Zhou, Z.-H. (2008).} \emph{Isolation Forest} \cite{liu2008isolation}.
-  Paper original del algoritmo: en vez de perfilar el comportamiento normal, aísla directamente las
-  observaciones mediante particiones aleatorias del espacio de atributos. Es la base te\'orica del modelo que
-  se va a entrenar en la Etapa 2 de este proyecto.
+Este problema se agudiza en Argentina, donde la inflaci\'on acumulada durante el
+per\'iodo analizado (abril~2025\,--\,abril~2026) genera que cualquier monto reciente
+sea sistem\'aticamente mayor que su equivalente hist\'orico en t\'erminos nominales.
+Un detector na\"ive que simplemente busque ``montos grandes'' marcar\'ia casi cada
+transacci\'on del \'ultimo mes como sospechosa. El desaf\'io no es encontrar montos
+grandes, sino encontrar montos \emph{inusualmente grandes para ese comercio en
+particular}, dada la historia de compras previa del propio usuario. Por ejemplo,
+una compra en el supermercado por \$150.000~ARS puede ser completamente normal en
+abril~2026 si el usuario regularmente gasta esa cifra all\'i; pero un cargo de
+\$71.904~ARS de una aplicaci\'on de delivery que normalmente cobra \$8.988~ARS
+(un aumento de 8$\times$) debe marcarse como sospechoso sin importar su valor
+absoluto.
 
-  \item \textbf{Liu, F. T., Ting, K. M., \& Zhou, Z.-H. (2012).} \emph{Isolation-Based Anomaly Detection}
-  \cite{liu2012isolation}. Versi\'on extendida (journal) del paper anterior, con un desarrollo m\'as detallado
-  del puntaje de anomal\'ia basado en la profundidad promedio de aislamiento (\emph{path length}).
+Las herramientas financieras personales existentes ---aplicaciones bancarias m\'oviles
+y gestores de gastos--- ofrecen visualizaciones del gasto hist\'orico por categor\'ia,
+pero no detectan activamente anomal\'ias dentro de una categor\'ia: pueden informar
+que el gasto en streaming subi\'o un 20\,\% este mes, pero no identifican qu\'e cargo
+espec\'ifico es el responsable del aumento. Los sistemas de alerta de los propios
+bancos se limitan a transacciones que superan un umbral absoluto configurable, lo que
+resulta ineficaz cuando el mismo monto puede ser normal para un comercio y at\'ipico
+para otro: \$71.904~ARS es razonable en un supermercado, pero at\'ipico en una
+aplicaci\'on de delivery que habitualmente cobra \$8.988~ARS. Este trabajo propone
+un sistema que eval\'ua cada transacci\'on en el contexto del historial espec\'ifico
+del usuario para ese comercio, cerrando esa brecha.
 
-  \item \textbf{Chandola, V., Banerjee, A., \& Kumar, V. (2009).} \emph{Anomaly Detection: A Survey}
-  \cite{chandola2009anomaly}. Survey m\'as citado del \'area de detecci\'on de anomal\'ias en general; clasifica
-  los enfoques en supervisados, semi-supervisados y no supervisados.
+Este trabajo presenta un sistema de detecci\'on autom\'atica de anomal\'ias
+financieras personales que analiza los res\'umenes reales de una tarjeta de cr\'edito
+y marca los movimientos que no se ajustan al comportamiento hist\'orico del usuario.
+Se identifican tres tipos de anomal\'ia objetivo, descritos en la
+Tabla~\ref{tab:anomaly-types}:
 
-  \item \textbf{Ahmed, M., Mahmood, A. N., \& Islam, M. R. (2016).} \emph{A Survey of Anomaly Detection
-  Techniques in Financial Domain} \cite{ahmed2016survey}. Survey enfocado espec\'ificamente en el dominio
-  financiero (fraude, lavado de dinero, comportamiento at\'ipico de cuentas).
+\begin{table}[h]
+\caption{Tipos de anomal\'ia detectados}
+\label{tab:anomaly-types}
+\centering
+\begin{tabular}{p{1.6cm}p{5.8cm}}
+\toprule
+\textbf{Tipo} & \textbf{Descripci\'on} \\
+\midrule
+Aumento de precio & Un comercio cobra significativamente m\'as que en per\'iodos
+anteriores (ej.\ una suscripci\'on que subi\'o de precio sin aviso). \\
+\addlinespace
+Cargo duplicado & El mismo cobro aparece dos veces con el mismo comercio, monto y
+fecha en el mismo per\'iodo. \\
+\addlinespace
+Monto at\'ipico & Un cargo puntual muy superior al patr\'on hist\'orico del comercio
+para ese usuario (ej.\ una compra de delivery ocho veces mayor a lo habitual). \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-  \item \textbf{Ounacer, S. et al. (2018).} \emph{Using Isolation Forest in Anomaly Detection: The Case of
-  Credit Card Transactions} \cite{ounacer2018isolation}. Compara Isolation Forest contra LOF, One-Class SVM y
-  K-means para detecci\'on de fraude en tarjetas de cr\'edito.
+La soluci\'on propuesta utiliza Isolation Forest~\cite{liu2008isolation}, un algoritmo
+de aprendizaje autom\'atico no supervisado que permite detectar anomal\'ias sin contar
+con ejemplos etiquetados de fraude o error previos. Esta propiedad es cr\'itica en el
+dominio de las finanzas personales: a diferencia del fraude bancario institucional,
+donde los bancos acumulan millones de transacciones etiquetadas, un usuario individual
+no cuenta con ning\'un historial anotado. El modelo aprende el comportamiento normal
+del usuario a partir de sus propios datos y marca como an\'omalo lo que se aleja de
+ese patr\'on \cite{chandola2009anomaly}.
 
-  \item \textbf{Vijayakumar, V., Divya, N. S., Sarojini, P., \& Sonika, K. (2020).} \emph{Isolation Forest and
-  Local Outlier Factor for Credit Card Fraud Detection System} \cite{vijayakumar2020isolation}. Aplica Isolation
-  Forest y LOF para identificar predictivamente pagos fraudulentos con tarjeta de cr\'edito.
+Las transacciones se representan mediante \emph{features} relativas al historial del
+propio usuario, en lugar de montos absolutos, lo que permite detectar rareza contextual
+con independencia del nivel de precios de cada per\'iodo \cite{budgeting2025ml}.
+Un estudio de ablaci\'on presentado en la Secci\'on~\ref{sec:ablacion} muestra
+que cada tipo de anomal\'ia es sensible a un subconjunto diferente de features,
+lo que justifica la inclusi\'on de las cuatro. Los resultados se presentan en un
+dashboard web con una explicaci\'on por cada alerta generada, siguiendo la direcci\'on
+marcada por trabajos recientes de XAI~(\emph{Explainable AI}) aplicados a
+transacciones financieras~\cite{lodhi2026explainable}.
 
-  \item \textbf{Dal Pozzolo, A., Boracchi, G., Caelen, O., Alippi, C., \& Bontempi, G. (2018).} \emph{Credit
-  Card Fraud Detection: A Realistic Modeling and a Novel Learning Strategy} \cite{dalpozzolo2018credit}. Aborda
-  c\'omo evaluar de forma realista un modelo de fraude cuando las etiquetas reales son escasas; metodol\'ogicamente
-  relevante para la forma en que este proyecto eval\'ua contra \texttt{data/eval\_labels.csv}.
+El resto del paper se organiza as\'i: la Secci\'on~\ref{sec:marco-teorico} introduce
+los conceptos te\'oricos centrales y los trabajos relacionados;
+la Secci\'on~\ref{sec:metodologia} detalla el dataset, el preprocesamiento y el modelo;
+la Secci\'on~\ref{sec:dashboard} describe el dashboard interactivo;
+la Secci\'on~\ref{sec:resultados} presenta los resultados incluyendo la ablaci\'on;
+la Secci\'on~\ref{sec:discusion} discute los hallazgos;
+la Secci\'on~\ref{sec:lecciones} recoge las lecciones de implementaci\'on; y
+la Secci\'on~\ref{sec:conclusiones} resume las conclusiones y el trabajo futuro.
 
-  \item \textbf{Schreyer, M., Sattarov, T., Borth, D., Dengel, A., \& Reimer, B. (2017).} \emph{Detection of
-  Anomalies in Large-Scale Accounting Data Using Deep Autoencoder Networks} \cite{schreyer2017detection}.
-  Propone autoencoders profundos no supervisados para detectar asientos contables an\'omalos; un enfoque
-  alternativo a Isolation Forest para contrastar en el marco te\'orico.
-
-  \item \textbf{Leveraging Machine Learning for Predictive Budgeting and Anomaly Detection in Personal Finance
-  (2025)} \cite{budgeting2025ml}. El trabajo m\'as cercano en alcance a este proyecto: aplica ML a nivel de
-  finanzas personales (presupuesto y anomal\'ias), aunque sin entrenar un modelo individual por usuario.
-
-  \item \textbf{Al-Bulushi, A., Shaikh, A. K., \& Adhikari, N. (2026).} \emph{Applying Supervised Machine
-  Learning Algorithms and Ensemble Models to Enhance Credit Card Fraud Detection} \cite{albulushi2026applying}.
-  Publicado en 2026 (Frontiers in Artificial Intelligence); eval\'ua algoritmos supervisados y de ensamble para
-  fraude con tarjeta, evidencia de que el \'area sigue activa este a\~no.
-
-  \item \textbf{Feng, X., \& Kim, S.-K. (2026).} \emph{Machine Learning-Based Data Generative Techniques for
-  Credit Card Fraud-Detection Systems} \cite{feng2026machine}. Publicado en 2026 (Mathematics, MDPI); usa
-  t\'ecnicas generativas para lidiar con la escasez de datos etiquetados de fraude.
-
-  \item \textbf{Gamal, N., Younis, E. M. G., \& Makram, W. M. (2026).} \emph{Enhancing Credit Card Fraud
-  Detection with a Hybrid Approach Using Machine and Deep Learning} \cite{gamal2026enhancing}. Publicado en 2026
-  (Scientific Reports); combina ML cl\'asico y deep learning con sampling h\'ibrido para el desbalance de clases.
-
-  \item \textbf{Cao, H. (2026).} \emph{Interpretable Financial Time Series Anomaly Detection Based on Frequency
-  Domain Features and Enhanced Sparse Attention} \cite{cao2026interpretable}. Publicado en 2026 (Applied
-  Intelligence); propone un m\'odulo de atenci\'on que mejora la interpretabilidad de las alertas, relevante
-  para la explicaci\'on que el dashboard de la Etapa 3 debe mostrar.
-
-  \item \textbf{Lodhi, A. (2026).} \emph{Explainable Artificial Intelligence for Anomaly Detection in Banking
-  Transactions: An Internal Audit Perspective} \cite{lodhi2026explainable}. Preprint de 2026 (a\'un sin revisi\'on
-  por pares) que combina expl\'icitamente Isolation Forest con SHAP y un dashboard simple (Streamlit) para
-  explicar alertas a usuarios no expertos; el enfoque m\'as directamente aplicable a la Etapa 3 de este proyecto.
-
-  \item \textbf{Gopalakrishnan, V. (2026).} \emph{SilIF: Silhouette-Augmented Isolation Forest for Unsupervised
-  Transaction Fraud Detection} \cite{gopalakrishnan2026silif}. Preprint de 2026 (a\'un sin revisi\'on por pares)
-  que agrega un puntaje basado en silueta sobre la representaci\'on de \'arboles de Isolation Forest, mejorando
-  el AUC-PR en el benchmark IEEE-CIS Fraud Detection.
-\end{enumerate}
-
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Marco Te\'orico y Trabajos Relacionados}
 \label{sec:marco-teorico}
-% TODO — todas las referencias de la Secci\'on \ref{sec:investigacion-bibliografica} ya est\'an en
-% references.bib, listas para citar ac\'a con \cite{}.
+% ─────────────────────────────────────────────────────────────────────────────
 
-\section{Metodolog\'ia Propuesta}
+\subsection{Detecci\'on de anomal\'ias: taxonom\'ia y enfoques}
+
+La detecci\'on de anomal\'ias busca identificar observaciones que difieren
+significativamente del resto del conjunto de datos~\cite{chandola2009anomaly}.
+Chandola et al.\ clasifican los enfoques en tres grandes categor\'ias seg\'un el
+tipo de supervisi\'on disponible: \emph{supervisados} (requieren ejemplos etiquetados
+de anomal\'ias y de comportamiento normal), \emph{semi-supervisados} (solo disponen de
+ejemplos normales para entrenar) y \emph{no supervisados} (no necesitan ning\'un tipo
+de etiqueta, aprenden la distribuci\'on completa de los datos).
+
+En el dominio financiero, la mayor parte de los enfoques publicados son supervisados o
+semi-supervisados, entrenados sobre grandes datasets bancarios con etiquetas de fraude
+conocido~\cite{ahmed2016survey, dalpozzolo2018credit}. Esta configuraci\'on es
+inviable para el usuario individual, que no posee ning\'un historial de anomal\'ias
+previas. Los m\'etodos no supervisados, en cambio, son aplicables desde el primer
+uso: aprenden el comportamiento normal del usuario a partir de sus propios datos y
+marcan como an\'omalo lo que se aleja de ese patr\'on, sin requerir ejemplos positivos
+de ning\'un tipo.
+
+Desde una perspectiva pr\'actica, los detectores no supervisados producen una
+puntuaci\'on de rareza continua en lugar de una clasificaci\'on binaria. Esto tiene
+implicaciones importantes para el dise\~no del sistema: el umbral de corte entre
+``an\'omalo'' y ``normal'' no se aprende de los datos, sino que se fija como un
+hiperpar\'ametro (\texttt{contamination}) que el dise\~nador debe calibrar. Cuando no
+se dispone de etiquetas reales, este umbral es esencialmente una elecci\'on de cu\'antas
+alertas el usuario est\'a dispuesto a revisar, no una estimaci\'on de la tasa real
+de anomal\'ias~\cite{dalpozzolo2018credit}.
+
+\subsection{Isolation Forest}
+
+Isolation Forest~\cite{liu2008isolation, liu2012isolation} es un algoritmo no
+supervisado dise\~nado espec\'ificamente para la detecci\'on de anomal\'ias.
+Su principio central es que las anomal\'ias son m\'as f\'aciles de \emph{aislar}
+que los puntos normales: al construir \'arboles de decisi\'on aleatorios
+repetidamente, los valores at\'ipicos quedan separados del resto con muy pocas
+particiones, mientras que los puntos normales requieren muchas m\'as divisiones.
+
+Formalmente, dado un conjunto de datos $X = \{x_1, \ldots, x_n\} \subset \mathbb{R}^d$,
+se construye un bosque de $t$ \'arboles de aislamiento (\emph{iTrees}). Cada
+\emph{iTree} se construye seleccionando aleatoriamente una feature $q$ y un punto
+de corte $p$ en el rango $[\min(q), \max(q)]$, particionando recursivamente los datos
+hasta que cada punto quede aislado o se alcance una profundidad m\'axima $\ell$.
+Para cada punto $x$, se define la profundidad de aislamiento $h(x)$ como el n\'umero
+de particiones necesarias para aislar $x$ en un \'arbol dado. La longitud de camino
+esperada para un conjunto de $n$ puntos se normaliza mediante la funci\'on
+$c(n) = 2H(n-1) - \frac{2(n-1)}{n}$, donde $H(\cdot)$ es el n\'umero arm\'onico.
+El puntaje de anomal\'ia de $x$ se define como:
+\begin{equation}
+  s(x,\,n) = 2^{-\,\frac{\mathbb{E}[h(x)]}{c(n)}}
+\end{equation}
+donde $\mathbb{E}[h(x)]$ es la profundidad media de aislamiento sobre todos los
+\'arboles del bosque. Valores de $s$ cercanos a~1 indican alta rareza (anomal\'ia);
+valores cercanos a~0.5 indican comportamiento normal~\cite{liu2012isolation}.
+
+El algoritmo es particularmente adecuado para datasets peque\~nos y de alta
+dimensionalidad: su complejidad de entrenamiento es $O(n \log n)$ por \'arbol,
+frente a $O(n^2)$ de LOF (\emph{Local Outlier Factor})~\cite{liu2008isolation}.
+Para el dataset de este trabajo (613~transacciones, 4~\emph{features}), el
+entrenamiento completo demora menos de~0.1~s en CPU.
+
+Trabajos anteriores han aplicado Isolation Forest a la detecci\'on de fraude en
+tarjetas de cr\'edito con resultados favorables frente a alternativas como LOF y
+One-Class SVM \cite{ounacer2018isolation, vijayakumar2020isolation}. Una limitaci\'on
+conocida es la sensibilidad al par\'ametro \texttt{contamination}, que en la
+pr\'actica se fija arbitrariamente ante la ausencia de etiquetas
+reales~\cite{dalpozzolo2018credit}. Esta limitaci\'on se analiza en la
+Secci\'on~\ref{sec:resultados}.
+
+\subsection{Evaluaci\'on sin \emph{ground truth} real}
+
+Un desaf\'io central en la detecci\'on no supervisada de anomal\'ias es c\'omo
+evaluar el modelo cuando no existen etiquetas de verdad. Dal Pozzolo et
+al.~\cite{dalpozzolo2018credit} identifican este problema como uno de los m\'as
+cr\'iticos en fraud detection: los modelos se entrenan sobre datos desbalanceados
+y se eval\'uan con m\'etricas que asumen que las etiquetas disponibles son
+representativas de la realidad, lo cual rara vez se cumple.
+
+En el contexto de finanzas personales, la situaci\'on es a\'un m\'as extrema:
+no solo no hay etiquetas, sino que es probable que el usuario nunca haya sufrido
+ning\'un tipo de anomal\'ia durante el per\'iodo de datos hist\'oricos. La
+estrategia adoptada en este trabajo ---inyectar anomal\'ias sint\'eticas
+controladas--- es un est\'andar reconocido cuando el ground truth real no existe~\cite{nguyen2026synthetic},
+pero tiene la limitaci\'on de que las anomal\'ias sint\'eticas pueden no ser
+representativas de las anomal\'ias reales en naturaleza o frecuencia.
+
+Tres alternativas fueron consideradas y descartadas. La \emph{revisi\'on por expertos}
+---hacer que un auditor revise el dataset completo y etiquete anomal\'ias manualmente---
+ofrece etiquetas m\'as realistas pero requiere acceso a un experto de dominio y es
+inescalable para datos personales. La \emph{evaluaci\'on por estabilidad del ranking}
+eval\'ua si el ordenamiento de anomal\'ias es robusto ante perturbaciones del dataset,
+pero no informa si los elementos en el tope del ranking son genuinamente an\'omalos.
+La \emph{validaci\'on cruzada de usuarios} ---aplicar el modelo a datos de otro usuario
+con anomal\'ias conocidas--- ser\'ia la alternativa m\'as robusta, pero requiere un
+segundo dataset etiquetado, no disponible para este trabajo. La inyecci\'on sint\'etica
+fue preferida porque permite controlar exactamente el tipo y la dificultad de
+detecci\'on, lo que hace posible el estudio de ablaci\'on: si se desconoce qu\'e tipo
+de anomal\'ia representa cada positivo, no es posible atribuir causalmente la detecci\'on
+a una feature en particular.
+
+\subsection{Alternativas consideradas}
+
+Se evaluaron tres alternativas antes de elegir Isolation Forest:
+
+\textbf{Autoencoder profundo.}  Schreyer et al.~\cite{schreyer2017detection} proponen
+autoencoders no supervisados para detectar asientos contables an\'omalos con buenos
+resultados en grandes datasets empresariales. Sin embargo, el costo computacional y la
+necesidad de calibrar la arquitectura y el umbral de reconstrucci\'on lo hacen poco
+pr\'actico para un dataset de 613~transacciones y un entorno de CPU personal.
+
+\textbf{Local Outlier Factor (LOF).}  LOF es competitivo en datasets peque\~nos
+pero requiere mantener en memoria todos los datos de entrenamiento al momento de
+inferencia (es un algoritmo basado en vecinos), lo que complica su integraci\'on con
+un dashboard de producci\'on que debe evaluar nuevas transacciones en tiempo real.
+
+\textbf{One-Class SVM.}  One-Class SVM muestra buenas tasas de detecci\'on pero
+es sensible a la escala de las features y requiere calibrar manualmente el n\'ucleo
+(\emph{kernel}) y el par\'ametro $\nu$. Isolation Forest es m\'as robusto a estos
+hiperpar\'ametros y m\'as interpretable conceptualmente~\cite{ounacer2018isolation}.
+
+La Tabla~\ref{tab:methods} resume las dimensiones clave de comparaci\'on.
+
+\begin{table}[h]
+\caption{Comparaci\'on de m\'etodos no supervisados de detecci\'on de anomal\'ias.
+  \emph{Sin datos en mem.}~=~no requiere conservar el conjunto de entrenamiento
+  durante la inferencia.}
+\label{tab:methods}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{M\'etodo} & \textbf{$n < 1\text{K}$} & \textbf{Sin datos en mem.} & \textbf{Inferencia} \\
+\midrule
+Isolation Forest & $\checkmark$ & $\checkmark$ & $O(\log n)$  \\
+LOF              & $\checkmark$ & $\times$     & $O(n)$       \\
+One-Class SVM    & Parcial      & $\checkmark$ & $O(n_{sv})$  \\
+Autoencoder      & $\times$     & $\checkmark$ & $O(d)$       \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ingenier\'ia de \emph{features} para finanzas personales con inflaci\'on}
+
+El monto crudo de una transacci\'on no es una feature adecuada para detectar anomal\'ias
+en finanzas personales bajo inflaci\'on alta: una compra de supermercado de
+\$50.000~ARS en abril~2026 puede ser completamente normal si en octubre~2025 se pagaba
+\$30.000~ARS por la misma canasta. Un detector basado en montos nominales marcar\'ia
+incorrectamente el aumento como anomal\'ia, confundiendo la tendencia general del nivel
+de precios con la rareza individual del cargo.
+
+La soluci\'on est\'andar en el dominio financiero personal es representar cada
+transacci\'on mediante sus \emph{desviaciones relativas al historial del propio
+usuario}~\cite{budgeting2025ml, tavares2026inflation}: en vez de ``\$50.000 es un monto grande'', el modelo
+razona ``este comercio normalmente cobra \$35.000, y esta vez cobr\'o un 43\,\% m\'as
+que su mediana hist\'orica''. Esta representaci\'on es invariante a la escala nominal
+del dinero y captura la rareza contextual que resulta de inter\'es.
+
+Sin embargo, este trabajo incluye tambi\'en el logaritmo del monto (\texttt{log\_monto})
+como feature complementaria, v\'alida principalmente para transacciones en moneda
+extranjera (USD) cuya escala no se ve afectada por la inflaci\'on en pesos. Como muestra
+el estudio de ablaci\'on (Secci\'on~\ref{sec:ablacion}), esta feature es cr\'itica para
+detectar el aumento de precio de Spotify (USD), que sin ella queda fuera del umbral de
+corte al~4\,\%.
+
+Trabajos recientes combinan representaciones relativas con t\'ecnicas de explicabilidad
+(SHAP, LIME) para presentar alertas comprensibles al usuario
+final~\cite{lodhi2026explainable, cao2026interpretable}. El dashboard de este trabajo
+implementa un subconjunto de estas ideas mediante reglas heur\'isticas sobre los
+valores de las features (ver Secci\'on~\ref{sec:dashboard}).
+
+\subsection{Detecci\'on en lote vs.\ detecci\'on en tiempo real}
+
+Los sistemas de detecci\'on de anomal\'ias en transacciones financieras pueden operar
+en dos modos seg\'un el momento en que analizan los datos.
+
+\textbf{Detecci\'on en tiempo real (streaming).}  Cada transacci\'on se eval\'ua en
+el instante en que se produce. Este enfoque, t\'ipico de los sistemas antifraude
+bancarios, permite alertar al usuario de forma inmediata, pero requiere acceso directo
+a los eventos de transacci\'on en tiempo real y limita el contexto hist\'orico
+disponible al momento de la evaluaci\'on: al procesar una transacci\'on, solo se
+conocen las ocurridas hasta ese instante.
+
+\textbf{Detecci\'on en lote (batch).}  El resumen mensual completo se analiza de una
+vez al recibir el cierre del per\'iodo. El modelo dispone del historial completamente
+actualizado de cada comercio ---incluyendo la mediana y la desviaci\'on est\'andar
+del mes reci\'en cerrado---, lo que mejora la precisi\'on de las features relativas.
+La contrapartida es la latencia: una anomal\'ia ocurrida el d\'ia~3 de un mes no se
+detecta hasta que el resumen est\'a disponible, con un desfase t\'ipico de 20~a~30
+d\'ias.
+
+Para los tipos de anomal\'ia objetivo de este trabajo ---aumentos de precio en
+suscripciones mensuales, cargos duplicados y montos at\'ipicos--- la latencia de
+un mes es aceptable. Ninguna de estas categor\'ias requiere intervenci\'on inmediata:
+el usuario dispone de tiempo suficiente para disputar un cargo dentro del plazo de
+impugnaci\'on habitual en tarjetas de cr\'edito~\cite{ahmed2016survey}. El modo
+lote es adem\'as el \'unico factible cuando los datos disponibles son res\'umenes
+mensuales exportados por el banco, sin acceso a los eventos de transacci\'on en
+tiempo real.
+
+Una l\'inea de trabajo futuro natural ser\'ia hibridizar ambos modos: entrenar el
+modelo mensualmente sobre el resumen completo y exponer el modelo entrenado mediante
+una interfaz que el usuario pueda consultar al recibir una notificaci\'on de cobro,
+sin necesidad de esperar al cierre del per\'iodo~\cite{silva2026hybrid}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Metodolog\'ia}
 \label{sec:metodologia}
+% ─────────────────────────────────────────────────────────────────────────────
+
+La Figura~\ref{fig:architecture} muestra el pipeline completo del sistema.
+Las subsecciones siguientes detallan cada etapa.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=0.42cm,
+  box/.style={rectangle, rounded corners=3pt, draw=black!55, fill=gray!10,
+              text width=6.9cm, align=center, minimum height=1.1cm, font=\small},
+  arr/.style={->, >=Stealth, semithick, black!55}
+]
+\node[box] (inp) {%
+  \textbf{Datos crudos}\\
+  {\footnotesize\itshape
+    14\,res\'umenes CSV\,$\cdot$\,657\,transacciones\,$\cdot$\,4\,columnas}};
+\node[box, below=0.38cm of inp] (prep) {%
+  \textbf{Preprocesamiento}\\
+  {\footnotesize\itshape
+    normalizar comercios\,$\cdot$\,categorizar\,$\cdot$\,estad\'isticas\,$\cdot$\,moneda}};
+\node[box, below=0.38cm of prep] (feat) {%
+  \textbf{Ingenier\'ia de \textit{features}}\\
+  {\footnotesize
+    $R$\;ratio-med.\quad$Z$\;z-score\quad$D$\;es-dup.\quad$L$\;log-monto}};
+\node[box, below=0.38cm of feat] (model) {%
+  \textbf{Isolation Forest}\\
+  {\footnotesize\itshape
+    200\,\'arboles\,$\cdot$\,contaminaci\'on\,4\,\%\,$\cdot$\,StandardScaler}};
+\node[box, below=0.38cm of model] (out) {%
+  \textbf{Dashboard web interactivo}\\
+  {\footnotesize\itshape
+    613\,puntajes\,$\cdot$\,25\,alertas\,$\cdot$\,explicaci\'on contextual}};
+\draw[arr] (inp.south)   -- (prep.north);
+\draw[arr] (prep.south)  -- (feat.north);
+\draw[arr] (feat.south)  -- (model.north);
+\draw[arr] (model.south) -- (out.north);
+\end{tikzpicture}
+\caption{Pipeline completo del sistema, desde los datos crudos hasta el dashboard.}
+\label{fig:architecture}
+\end{figure}
 
 \subsection{Dataset}
-% TODO
 
-\subsection{Preprocesamiento y Features}
-% TODO
+El dataset se construy\'o a partir de 14~res\'umenes mensuales reales de una tarjeta
+de cr\'edito personal (abril~2025 a abril~2026), exportados por el banco en formato
+CSV con columnas \texttt{fecha}, \texttt{descripcion}, \texttt{monto} y
+\texttt{moneda}. Los res\'umenes corresponden a los cierres mensuales de marzo~2025
+a abril~2026 y contienen transacciones de cargos, pagos, devoluciones y ajustes.
+Solo los cargos efectivos (monto~$> 0$) son relevantes para la detecci\'on de
+anomal\'ias; se descartaron 44~l\'ineas de pagos, devoluciones y bonificaciones,
+resultando en 657~transacciones de cargo.
 
-\subsection{Modelo}
-% TODO
+La Tabla~\ref{tab:dataset-stats} resume las caracter\'isticas del dataset.
+
+\begin{table}[h]
+\caption{Caracter\'isticas del dataset}
+\label{tab:dataset-stats}
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Atributo} & \textbf{Valor} \\
+\midrule
+Res\'umenes mensuales & 14 \\
+Per\'iodo            & mar.\,2025\,--\,abr.\,2026 \\
+Transacciones totales (cargo) & 657 \\
+Comercios distintos  & 249 \\
+Transacciones ARS    & 601 (91.5\,\%) \\
+Transacciones USD    & 56 (8.5\,\%) \\
+\midrule
+\multicolumn{2}{l}{\textit{Distribuci\'on por categor\'ia}} \\
+Otros (comercios sin categor\'ia) & 346 (52.7\,\%) \\
+Supermercado        & 112 (17.0\,\%) \\
+Impuestos y banco   & 52 (7.9\,\%) \\
+Streaming / suscripciones & 35 (5.3\,\%) \\
+Transporte          & 30 (4.6\,\%) \\
+Comida r\'apida y bares & 29 (4.4\,\%) \\
+Servicios del hogar & 27 (4.1\,\%) \\
+Delivery            & 26 (4.0\,\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Para la evaluaci\'on del modelo, dado que los datos reales no contienen etiquetas
+de anomal\'ias conocidas, se adopt\'o la estrategia est\'andar de inyecci\'on de
+anomal\'ias sint\'eticas~\cite{dalpozzolo2018credit}: se modificaron tres transacciones
+reales del dataset ---una por tipo de anomal\'ia objetivo--- y se registr\'o el
+\emph{ground truth} en \texttt{data/eval\_labels.csv}. Las 654~transacciones no
+modificadas son datos reales sin alteraci\'on.
+
+Los tres casos se seleccionaron seg\'un un criterio de \emph{diversidad de dificultad}
+que garantiza que cada mecanismo de detecci\'on del sistema quede validado de forma
+independiente:
+
+\begin{itemize}
+  \item \textbf{Monto at\'ipico} (RAPPI, 02/12/2025): cargo de delivery incrementado
+  de \$8.988 a \$71.904~ARS ($\times$8). Con $r = 5.18$ y $z = 3.75$, produce las
+  se\~nales m\'as extremas del dataset. Sirve como \emph{l\'inea base}: si el modelo
+  no detecta este caso, las features relativas est\'an mal construidas.
+
+  \item \textbf{Cargo duplicado} (RIALTO, 04/02/2026): cargo de \$7.800~ARS
+  duplicado exactamente el mismo d\'ia. Con $r = 1.00$ y $z = 0.00$, es
+  indetectable por magnitud; solo la feature $D$ lo distingue de una transacci\'on
+  normal. Valida que el indicador de duplicado es funcional y necesario.
+
+  \item \textbf{Aumento de precio} (Spotify, 06/04/2026): cargo elevado de
+  USD~4.00 a USD~5.50 ($+$37.5\,\%). Eval\'ua la detecci\'on en moneda estable,
+  donde la inflaci\'on en pesos no es factor de confusi\'on, pero el incremento de
+  USD~1.50 es peque\~no en valor absoluto y requiere contexto hist\'orico para ser
+  identificado como at\'ipico. Es el caso l\'imite del sistema.
+\end{itemize}
+
+La Tabla~\ref{tab:ground-truth} formaliza las tres modificaciones.
+
+\begin{table}[h]
+\caption{Anomal\'ias sint\'eticas inyectadas (\emph{ground truth} de evaluaci\'on)}
+\label{tab:ground-truth}
+\centering
+\begin{tabular}{p{1.6cm}p{1.0cm}p{4.1cm}}
+\toprule
+\textbf{Tipo} & \textbf{Comerc.} & \textbf{Modificaci\'on} \\
+\midrule
+Monto at\'ip. & RAPPI   & \$8.988\,$\to$\,\$71.904\,ARS\;($\times$8, $+$700\,\%) \\
+Cargo dup.    & RIALTO  & \$7.800\,ARS duplicado\;($+$100\,\%) \\
+Aum.\ precio  & Spotify & USD\,4.00\,$\to$\,USD\,5.50\;($+$37.5\,\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Preprocesamiento}
+
+El preprocesamiento se estructura en cuatro pasos:
+
+\textbf{Paso~1 --- Normalizaci\'on del nombre de comercio.}
+El campo \texttt{descripcion} del banco incluye prefijos de intermediarios de pago
+(MERPAGO*, DLO*, PAYU*AR*, etc.), n\'umeros de sucursal, c\'odigos de transacci\'on
+y montos embebidos en texto. Se extrajo un nombre can\'onico de comercio eliminando
+estos prefijos mediante expresiones regulares y descartando tokens num\'ericos finales
+(n\'umeros de sucursal). Por ejemplo, ``DLO*RAPPI~10242'' se normaliza a ``RAPPI'',
+y ``MERPAGO*COTO'' a ``COTO''. Sin este paso, cada sucursal y procesador de pago
+generar\'ia un ``comercio'' distinto, fragmentando el historial y haciendo inviable
+el c\'alculo de estad\'isticas por comercio.
+
+\textbf{Paso~2 --- Categorizaci\'on por palabras clave.}
+A cada comercio normalizado se le asigna una categor\'ia mediante un conjunto de
+reglas basadas en palabras clave evaluadas en orden de prioridad:
+\texttt{delivery} (RAPPI, PEDIDOSYA), \texttt{streaming\_suscripciones} (SPOTIFY,
+NETFLIX, STEAM, etc.), \texttt{supermercado} (COTO, JUMBO, CARREFOUR, etc.),
+y as\'i para las restantes categor\'ias. Los comercios que no coinciden con ninguna
+regla se asignan a la categor\'ia ``otros'' (52.7\,\% del dataset).
+
+\textbf{Paso~3 --- C\'alculo de estad\'isticas hist\'oricas.}
+Para cada par (comercio, moneda) se calculan la media, la mediana y la desviaci\'on
+est\'andar hist\'oricas del monto a lo largo de todos los res\'umenes disponibles.
+Cuando un comercio tiene menos de tres transacciones previas, se reemplaza su
+distribuci\'on individual por la distribuci\'on de su categor\'ia. Este mecanismo de
+\emph{fallback} evita ratios artificialmente inflados para comercios nuevos.
+
+\textbf{Paso~4 --- Detecci\'on de moneda real.}
+Algunos cargos en d\'olares llegan al CSV con la moneda etiquetada como ``ARS'' por
+el banco, pero su descripci\'on contiene el monto en USD (por ejemplo,
+``SPOTIFY USD~4,00''). Se reclasifican como USD mediante expresi\'on regular sobre
+la descripci\'on, lo que permite calcular estad\'isticas hist\'oricas en la moneda
+correcta.
+
+\begin{table}[h]
+\caption{Resumen de los cuatro pasos de preprocesamiento}
+\label{tab:preprocessing}
+\centering
+\begin{tabular}{clp{3.5cm}}
+\toprule
+\textbf{Paso} & \textbf{Operaci\'on} & \textbf{Resultado} \\
+\midrule
+1 & Normalizar nombre de comercio  & Nombre can\'onico; elimina prefijos de pago y sufijos num\'ericos \\
+2 & Categorizar por palabras clave & 8~categor\'ias\,+\,``otros'' (52.7\,\%) \\
+3 & Calcular estad\'isticas hist\'oricas & Media, mediana, $\sigma$ por (comercio, moneda) \\
+4 & Detectar moneda real           & Reclasifica cargos USD mal etiquetados como ARS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ingenier\'ia de \emph{features}}
+\label{sec:features}
+
+Las cuatro features utilizadas se dise\~naron para capturar dimensiones
+complementarias de rareza:
+
+\begin{itemize}
+  \item \textbf{\texttt{ratio\_mediana}} ($r$): raz\'on entre el monto de la
+  transacci\'on y la mediana hist\'orica del comercio en la misma moneda.
+  $r = m / \tilde{\mu}$, donde $\tilde{\mu}$ es la mediana hist\'orica.
+  La mediana (en lugar de la media) hace la referencia robusta frente a compras
+  ocasionalmente grandes: la mediana de Spotify es el precio mensual habitual
+  incluso si una vez se hizo un pago anual que eleva la media.
+
+  \item \textbf{\texttt{zscore\_hist}} ($z$): z-score del monto respecto al
+  historial del comercio. $z = (m - \mu) / \sigma$, donde $\mu$ y $\sigma$ son
+  la media y la desviaci\'on est\'andar hist\'oricas. Valores $|z| > 2$ indican
+  una desviaci\'on significativa; valores $|z| > 3$ indican rareza extrema.
+  Cuando $\sigma = 0$ el z-score se fija en~0.
+
+  \item \textbf{\texttt{es\_duplicado}} ($d$): variable binaria que vale~1 si existe
+  al menos otra transacci\'on con exactamente el mismo comercio, monto y fecha.
+  Es la \'unica feature que puede detectar cargos duplicados: un duplicado exacto
+  tiene $r \approx 1$ y $z \approx 0$ (el monto es el habitual), por lo que las
+  features de magnitud no lo distinguir\'ian de una transacci\'on normal.
+
+  \item \textbf{\texttt{log\_monto}} ($l$): logaritmo natural de $(1 + m)$.
+  Esta feature complementa a las relativas para transacciones en moneda estable
+  (USD): a diferencia del peso argentino, el d\'olar no se devalua mes a mes, por
+  lo que el monto USD crudo conserva significado comparativo entre per\'iodos.
+  El estudio de ablaci\'on (Secci\'on~\ref{sec:ablacion}) muestra que sin esta
+  feature el aumento de precio de Spotify cae fuera del umbral de flaggeado.
+\end{itemize}
+
+La Tabla~\ref{tab:features} sintetiza las cuatro features, su f\'ormula y el tipo
+de anomal\'ia que cada una detecta de forma primaria.
+
+\begin{table}[h]
+\caption{Resumen de las cuatro \emph{features} del modelo}
+\label{tab:features}
+\centering
+\begin{tabular}{clp{1.6cm}p{2.0cm}}
+\toprule
+\textbf{S\'imb.} & \textbf{Nombre} & \textbf{F\'ormula} & \textbf{Anomal\'ia objetivo} \\
+\midrule
+$R$ & ratio-mediana & $m/\tilde{\mu}$  & Monto at\'ip., Aum.\ precio \\
+$Z$ & z-score hist. & $(m-\mu)/\sigma$ & Monto at\'ip., Aum.\ precio \\
+$D$ & es-duplicado  & $\{0,\,1\}$      & Cargo duplicado \\
+$L$ & log-monto     & $\ln(1+m)$       & Aum.\ precio (USD) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Las cuatro features se normalizaron con \texttt{StandardScaler} antes del
+entrenamiento para evitar que \texttt{ratio\_mediana} (que alcanza valores de
+10--12 para compras muy grandes) domine las particiones del \'arbol frente a
+\texttt{es\_duplicado} (binaria, 0 o 1).
+
+\subsection{Modelo e Hiperpar\'ametros}
+
+Se entrena un Isolation Forest de scikit-learn~\cite{liu2008isolation} con los
+par\'ametros indicados en la Tabla~\ref{tab:hyperparams}.
+
+\begin{table}[h]
+\caption{Hiperpar\'ametros del Isolation Forest}
+\label{tab:hyperparams}
+\centering
+\begin{tabular}{lrp{3.8cm}}
+\toprule
+\textbf{Par\'ametro} & \textbf{Valor} & \textbf{Justificaci\'on} \\
+\midrule
+\texttt{n\_estimators} & 200 & Reduce varianza del puntaje frente al default de~100, cr\'itico en datasets peque\~nos. \\
+\addlinespace
+\texttt{contamination} & 0.04 & Tasa real $\approx$\,0.5\,\%; se us\'o 4\,\% para cubrir las~3 sint\'eticas m\'as los falsos positivos esperados. \\
+\addlinespace
+\texttt{random\_state}  & 42  & Semilla para reproducibilidad exacta entre ejecuciones. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Evaluaci\'on}
-% TODO
 
-\section{Resultados Preliminares}
+Con solo 3~anomal\'ias sint\'eticas conocidas, la construcci\'on de una curva ROC
+completa no es estad\'isticamente significativa: el \'area bajo la curva depende de
+la tasa de falsos positivos en todos los posibles umbrales, y con 3~positivos sobre
+613~observaciones cualquier estimaci\'on puntual de AUC tendr\'ia intervalos de
+confianza que abarcan pr\'acticamente todo el rango $[0,1]$. Se adoptan en cambio
+dos m\'etricas complementarias m\'as informativas en este contexto:
+
+\textbf{Recall sobre el ground truth}: proporci\'on de anomal\'ias sint\'eticas
+que quedan marcadas como \texttt{is\_anomaly\,=\,1} por el modelo con el umbral
+de contaminaci\'on elegido. Es la m\'etrica m\'as directa: indica cu\'antos de
+los tres casos conocidos son capturados.
+
+\textbf{Posici\'on en el ranking} (\emph{rank}): rango de cada anomal\'ia
+sint\'etica en el ordenamiento descendente por puntaje de anomal\'ia. Esta
+m\'etrica es independiente del umbral y tiene interpretaci\'on directa en
+t\'erminos de experiencia de usuario: si las tres anomal\'ias quedan dentro del
+top-5\,\% (rank~$\leq$~31 sobre 613~transacciones), un usuario que revisa las
+primeras 30~alertas las ver\'ia todas. El ranking es adem\'as m\'as estable que
+el flag binario ante variaciones en el par\'ametro de contaminaci\'on
+(ver Tabla~\ref{tab:contamination}).
+
+Se complementa con un \textbf{estudio de ablaci\'on} que eval\'ua c\'omo var\'ia el
+recall y el ranking cuando se excluye cada feature individualmente, para cuantificar
+la contribuci\'on de cada una a la detecci\'on de cada tipo de anomal\'ia.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Dashboard de Visualizaci\'on}
+\label{sec:dashboard}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Los puntajes de anomal\'ia generados por el modelo se presentan en un dashboard web
+est\'atico construido con HTML5, CSS3 y JavaScript puro, sin dependencias de
+frameworks externos. El dashboard lee el archivo \texttt{data/scores.csv} v\'ia
+\texttt{fetch()} y puede levantarse en cualquier m\'aquina con Python instalado
+ejecutando \texttt{tools/serve.ps1} desde la ra\'iz del repositorio. La elecci\'on
+de un stack puramente est\'atico (sin React, Vue ni servidor de aplicaciones) reduce
+la barrera de despliegue a cero: cualquier servidor HTTP gen\'erico sirve el
+dashboard, incluido el servidor de desarrollo integrado en Python
+(\texttt{python -m http.server}).
+
+\subsection{Componentes principales}
+
+\textbf{Panel de KPIs.}  En la parte superior se muestran cuatro indicadores clave:
+n\'umero total de transacciones (613), n\'umero de transacciones flaggeadas (25),
+puntaje m\'inimo observado y el recall sobre el ground truth sint\'etico (3/3).
+
+\textbf{Tarjetas de alerta.}  Para cada transacci\'on marcada como an\'omala se genera
+una tarjeta con el nombre del comercio, el monto, la fecha y una explicaci\'on
+autom\'atica construida a partir de los valores de las features:
+\begin{itemize}
+  \item Si \texttt{es\_duplicado = 1}: ``Cargo duplicado exacto.''
+  \item Si $r > 5$: ``Monto \textbf{5.2$\times$} la mediana hist\'orica.''
+  \item Si $|z| > 3$: ``Z-score \textbf{3.75} --- muy fuera del rango habitual.''
+  \item Si ninguna condici\'on se cumple: ``Combinaci\'on inusual de features.''
+\end{itemize}
+Esta l\'ogica heur\'istica aproxima la explicabilidad de SHAP~\cite{lodhi2026explainable, wang2026dashboard}
+sin su costo computacional, a costa de no cuantificar la contribuci\'on exacta de
+cada feature al puntaje del \'arbol.
+
+\textbf{Histograma de puntajes.}  Muestra la distribuci\'on completa de
+\emph{anomaly scores} para las 613~transacciones: las flaggeadas en rojo, las
+normales en verde, y una l\'inea vertical punteada en el umbral de corte. Esta
+visualizaci\'on permite al usuario ver si las anomal\'ias est\'an claramente separadas
+del resto o si se solapan con la distribuci\'on normal, lo que informa la confianza
+en las alertas generadas.
+
+\textbf{Tabla interactiva.}  Presenta todas las transacciones agrupadas por mes,
+con b\'usqueda por comercio, filtro ``solo flaggeadas'', ordenamiento por cualquier
+columna y expansi\'on de cada fila para ver el detalle del historial del comercio:
+mediana hist\'orica, desviaci\'on est\'andar y n\'umero de apariciones previas.
+Este contexto hist\'orico es clave para que el usuario pueda distinguir una anomal\'ia
+real de una compra inusual pero leg\'itima (ver Secci\'on~\ref{sec:discusion}).
+
+\textbf{Diccionario de datos.}  Una secci\'on colapsable describe cada columna
+del archivo de scores en lenguaje no t\'ecnico, haciendo el sistema accesible para
+usuarios sin formaci\'on en machine learning.
+
+\subsection{Pipeline operativo}
+
+El flujo completo desde los datos crudos hasta el dashboard se ejecuta en tres
+pasos:
+\begin{enumerate}
+  \item \texttt{tools/preprocess.ps1}: unifica los 14~CSV y calcula las features.
+  \item \texttt{tools/train.ps1}: entrena el modelo y genera \texttt{data/scores.csv}.
+  \item \texttt{tools/serve.ps1}: levanta el servidor HTTP y abre el dashboard.
+\end{enumerate}
+El tiempo total (pasos~1--2) es inferior a~2~segundos en CPU, lo que hace factible
+re-entrenar cada mes al agregar un nuevo resumen.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Resultados}
 \label{sec:resultados}
-% TODO
+% ─────────────────────────────────────────────────────────────────────────────
 
+\subsection{Detecci\'on de anomal\'ias sint\'eticas}
+
+La Tabla~\ref{tab:eval-results} muestra los resultados del modelo sobre las tres
+anomal\'ias sint\'eticas inyectadas.
+
+\begin{table}[h]
+\caption{Resultados sobre anomal\'ias sint\'eticas (613~transacciones;
+  todos los casos fueron detectados, recall\,=\,3/3).
+  $r$\,=\,ratio a la mediana hist\'orica; $z$\,=\,z-score hist\'orico.}
+\label{tab:eval-results}
+\centering
+\begin{tabular}{p{1.7cm}p{1.1cm}rrrr}
+\toprule
+\textbf{Tipo} & \textbf{Comercio} & \textbf{Score} & \textbf{Rank} & \textbf{$r$} & \textbf{$z$} \\
+\midrule
+Monto at\'ip.  & RAPPI   & $-$0.713 & 3/613  & 5.18 & 3.75 \\
+Cargo dup.     & RIALTO  & $-$0.664 & 18/613 & 1.00 & 0.00 \\
+Aum.\ precio   & Spotify & $-$0.658 & 22/613 & 1.43 & 2.79 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los tres casos son detectados dentro del top-4\,\% (recall\,=\,3/3\,=\,100\,\%).
+El caso m\'as claro es el monto at\'ipico de RAPPI (rank~3): su raz\'on a la
+mediana hist\'orica es 5.18 y su z-score es 3.75, los valores m\'as extremos del
+dataset en ambas dimensiones. El cargo duplicado de RIALTO es detectado
+\emph{exclusivamente} por la indicadora de duplicado: su raz\'on a la mediana y
+z-score son 1.00 y 0.00, respectivamente, lo que indica que el monto individual
+es exactamente el precio habitual y no ofrece ninguna se\~nal por magnitud. El
+aumento de precio de Spotify (rank~22) es el caso m\'as ajustado: cae justo dentro
+del 4\,\% de corte, con un z-score de 2.79 ---significativo pero no extremo para
+una suscripci\'on cuyos precios var\'ian levemente por tipo de cambio.
+
+\subsection{Estudio de ablaci\'on}
+\label{sec:ablacion}
+
+La Tabla~\ref{tab:ablation} muestra la posici\'on en el ranking de cada anomal\'ia
+sint\'etica al entrenar el modelo con diferentes subconjuntos de features.
+
+\begin{table}[h]
+\caption{Ablaci\'on por subconjunto de \emph{features}. Notaci\'on:
+  $L$\,=\,log-monto, $R$\,=\,ratio-mediana, $Z$\,=\,z-score, $D$\,=\,es-dup.
+  Los ranks en \textbf{negrita} indican transacci\'on flaggeada
+  (contamination\,=\,0.04).}
+\label{tab:ablation}
+\centering
+\begin{tabular}{lcccr}
+\toprule
+\textbf{Subconjunto} & \textbf{RAPPI} & \textbf{RIALTO} & \textbf{Spotify} & \textbf{Rec.} \\
+\midrule
+Solo $L$ (basal) & 216 & 409 & 60  & 0/3 \\
+Solo $R$         & \textbf{4}   & 544 & 108 & 1/3 \\
+Solo $Z$         & \textbf{3}   & 528 & \textbf{13}  & 2/3 \\
+Solo $D$         & 300 & \textbf{9}   & 583 & 1/3 \\
+$R + Z$          & \textbf{3}   & 543 & \textbf{14}  & 2/3 \\
+$R + Z + D$      & \textbf{3}   & \textbf{17}  & 31  & 2/3 \\
+\textbf{$R + Z + D + L$} & \textbf{3} & \textbf{18} & \textbf{22} & \textbf{3/3} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los resultados de ablaci\'on revelan tres patrones fundamentales:
+
+\textbf{Cada tipo de anomal\'ia tiene su \emph{feature} primaria.}
+RAPPI (\emph{monto at\'ipico}) es detectado por $R$ o $Z$ de forma independiente.
+RIALTO (\emph{cargo duplicado}) solo es detectable mediante $D$: sin ella cae al
+rango~528--543, completamente invisible. Spotify (\emph{aumento de precio}) requiere
+$Z$ o $L$; es el caso m\'as dif\'icil porque el aumento de USD~1.50 es significativo
+en t\'erminos relativos pero peque\~no en valor absoluto.
+
+\textbf{Incorporar $D$ sin $L$ perjudica la detecci\'on de Spotify.}
+Al a\~nadir $D$ al subconjunto $\{R, Z\}$ (Spotify pasa de rank~14 a rank~31), la
+anomal\'ia de Spotify deja de flaggearse. El motivo es que las recargas de SUBE
+con duplicados entre res\'umenes consecutivos ascienden al tope del ranking y
+consumen el presupuesto del~4\,\%, desplazando a Spotify. Este efecto se compensa
+al incluir $L$, que aporta una dimensi\'on adicional para separar las transacciones
+en USD de las normales.
+
+\textbf{El modelo basal ($L$ sola) obtiene recall~0/3.}
+El monto crudo, incluso en escala logar\'itmica, no es suficiente para detectar
+ninguna de las tres anomal\'ias de forma individual: los patrones relevantes son
+\emph{relativos al historial del comercio} y la presencia de duplicados, no el
+monto absoluto.
+
+\subsection{An\'alisis de falsos positivos}
+
+Con un umbral de contaminaci\'on del~4\,\%, el modelo marca 25~transacciones. Las
+22~restantes (descontadas las 3~sint\'eticas) son en su mayor\'ia compras leg\'itimas
+pero estad\'isticamente inusuales. La Tabla~\ref{tab:false-positives} lista las cinco
+con mayor puntaje de anomal\'ia.
+
+\begin{table}[h]
+\caption{Cinco principales falsos positivos (rank\,1--15)}
+\label{tab:false-positives}
+\centering
+\begin{tabular}{p{2.0cm}rrr}
+\toprule
+\textbf{Comercio} & \textbf{Monto} & \textbf{Rank} & \textbf{$r$} \\
+\midrule
+COTO             & \$329.706 ARS & 1  & 12.73 \\
+UBER             & \$51.634 ARS  & 2  & 6.50  \\
+EMOVA SUBTE (dup) & \$963 ARS   & 4  & --- \\
+FUND UNIV PAL    & \$1.206.500 ARS & 12 & 1.92 \\
+MARKET PALERMO   & \$99.245 ARS  & 15 & 3.63 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los tres patrones de falsos positivos son: compras grandes leg\'itimas en comercios
+conocidos (COTO rank~1, MARKET PALERMO rank~15), duplicados de SUBE por superposici\'on
+de fechas de cierre entre res\'umenes consecutivos (posiciones~4--14), y compras
+\'unicas de alto monto en comercios con poco historial (FUND~UNIV~PAL, matr\'icula
+universitaria).
+
+\subsection{Sensibilidad al par\'ametro de contaminaci\'on}
+
+La Tabla~\ref{tab:contamination} muestra c\'omo var\'ia el recall de las sint\'eticas
+seg\'un el valor de \texttt{contamination}.
+
+\begin{table}[h]
+\caption{Sensibilidad al par\'ametro de contaminaci\'on}
+\label{tab:contamination}
+\centering
+\begin{tabular}{rrrr}
+\toprule
+\textbf{Contam.} & \textbf{Flaggeadas} & \textbf{Sint. det.} & \textbf{Rank m\'ax} \\
+\midrule
+0.02 & 12 & 2/3 & 18 \\
+0.04 & 25 & 3/3 & 22 \\
+0.06 & 37 & 3/3 & 22 \\
+0.10 & 61 & 3/3 & 22 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los ranks de las tres anomal\'ias sint\'eticas son estables (3, 18 y 22) para
+cualquier valor del par\'ametro, mientras que el flag binario var\'ia de forma
+discontinua. Con contaminaci\'on del~2\,\%, Spotify (rank~22) queda fuera del
+top-12 y no se detecta. Esto refuerza la recomendaci\'on de reportar el ranking
+continuo como m\'etrica primaria en lugar de la etiqueta binaria.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discusi\'on}
+\label{sec:discusion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Comparaci\'on con trabajos relacionados}
+
+Los resultados obtenidos son coherentes con los de Ounacer et
+al.~\cite{ounacer2018isolation} y Vijayakumar et al.~\cite{vijayakumar2020isolation},
+que reportan Isolation Forest como el algoritmo m\'as efectivo entre las opciones
+no supervisadas para detecci\'on de anomal\'ias en tarjetas de cr\'edito. Sin
+embargo, el contexto difiere en un aspecto cr\'itico: los trabajos citados operan
+sobre datasets bancarios con cientos de miles de transacciones y etiquetas de fraude
+conocidas, mientras que este trabajo opera sobre un dataset de 613~transacciones de
+un \'unico usuario sin etiquetas. Esto hace que la comparaci\'on directa de m\'etricas
+(AUC, F1) sea imposible y que la evaluaci\'on mediante anomal\'ias sint\'eticas sea
+la alternativa m\'as rigurosa disponible.
+
+El enfoque de representaci\'on mediante features relativas al historial del usuario
+va en la direcci\'on apuntada por Budgeting2025~\cite{budgeting2025ml}, aunque
+este \'ultimo trabaja a nivel de categor\'ias (presupuesto mensual por rubro) mientras
+que el presente sistema opera a nivel de transacci\'on individual y comercio espec\'ifico,
+lo que permite detectar anomal\'ias m\'as granulares como un aumento de precio en una
+suscripci\'on particular.
+
+\subsection{Limitaciones y amenazas a la validez}
+
+\textbf{Dataset de un \'unico usuario.}  Todos los resultados provienen de los datos
+de una sola persona. Los comercios, las categor\'ias y los patrones de gasto son
+altamente personales; no es posible garantizar que el sistema funcione con la misma
+efectividad para otro usuario con h\'abitos de consumo diferentes (por ejemplo, alguien
+con muchas compras en comercios de alta variabilidad de precio).
+
+\textbf{Tres anomal\'ias sint\'eticas no son suficientes para estimar precision.}
+Con solo 3~ejemplos positivos, el recall (3/3~=~100\,\%) es un indicador confiable,
+pero la precisi\'on (3~verdaderos positivos sobre 25~flaggeadas = 12\,\%) es
+estad\'isticamente inestable: basta con que una sola anomal\'ia real adicional
+no haya sido inyectada para que la precisi\'on real sea mayor.
+
+\textbf{Inflaci\'on como variable confundidora.}  Las features relativas eliminan
+la mayor parte del efecto inflacionario, pero no lo compensan si el usuario
+cambi\'o de forma permanente sus h\'abitos de consumo (por ejemplo, empieza a comprar
+en supermercados m\'as caros). En ese caso, las primeras compras en el nuevo comercio
+o a los nuevos precios tendr\'an ratios elevados hasta que el historial se actualice.
+
+\subsection{Implicaciones para el dise\~no de sistemas similares}
+
+El estudio de ablaci\'on tiene implicaciones pr\'acticas directas para quien quiera
+replicar o extender este trabajo: no existe una feature \'unica que detecte todos los
+tipos de anomal\'ia, y la combinaci\'on de features genera interacciones no triviales
+(agregar $D$ sin $L$ perjudica la detecci\'on de aumentos de precio en USD). Esto
+sugiere que el dise\~no del espacio de features debe evaluarse expl\'icitamente para
+cada tipo de anomal\'ia objetivo, en lugar de asumir que ``m\'as features es siempre
+mejor''.
+
+\subsection{Transferibilidad a otros contextos}
+
+Los resultados de este trabajo corresponden a un \'unico usuario en un entorno de
+inflaci\'on alta. Esta secci\'on eval\'ua en qu\'e condiciones las decisiones de
+dise\~no son transferibles.
+
+\textbf{Otro usuario con patrones similares.}  El sistema no hace suposiciones sobre
+los tipos de comercios ni sobre los montos absolutos: aprende el perfil espec\'ifico
+del usuario a partir de su propio historial. Si un segundo usuario dispone de al menos
+tres a seis meses de historial en sus comercios habituales, el mecanismo de
+estad\'isticas hist\'oricas produce una referencia igualmente v\'alida. El par\'ametro
+de contaminaci\'on deber\'ia re-calibrarse o dejarse como configuraci\'on expl\'icita
+del usuario.
+
+\textbf{Pa\'is con inflaci\'on baja o moderada.}  En entornos con poca inflaci\'on
+los montos nominales son estables a lo largo del tiempo. En ese contexto, $L$ gana
+relevancia como se\~nal de anomal\'ia primaria, ya que el valor absoluto de una
+transacci\'on conserva significado comparativo entre per\'iodos. Las features
+relativas $R$ y $Z$ siguen siendo las m\'as importantes, pero su umbral natural de
+rareza es m\'as bajo porque el drift inflacionario no introduce ruido en las
+comparaciones hist\'oricas.
+
+\textbf{Otro banco o pa\'is.}  El \'unico componente directamente dependiente del
+banco argentino es la l\'ogica de normalizaci\'on de nombres de comercio (Paso~1 del
+preprocesamiento) y la detecci\'on de moneda embebida en el texto (Paso~4). Ambos
+pasos se basan en expresiones regulares sobre el campo \texttt{descripcion}, cuyo
+formato var\'ia por banco emisor. Un banco que exporte la moneda como campo
+estructurado, o que no incluya prefijos de procesadores de pago en la descripci\'on,
+no requerir\'ia Paso~4, y la complejidad de Paso~1 ser\'ia considerablemente menor.
+
+La Tabla~\ref{tab:transferability} resume los cambios requeridos en cada escenario.
+
+\begin{table}[h]
+\caption{Requisitos de adaptaci\'on a distintos contextos de despliegue}
+\label{tab:transferability}
+\centering
+\begin{tabular}{p{1.7cm}p{2.4cm}p{2.6cm}}
+\toprule
+\textbf{Contexto} & \textbf{Adaptaci\'on} & \textbf{Componente afectado} \\
+\midrule
+Otro usuario         & Re-entrenar con historial propio         & Estad\'isticas hist\'oricas + modelo \\
+\addlinespace
+Inflaci\'on baja     & Sin cambios; $L$ gana relevancia relativa & Features ($L$ cobra m\'as peso) \\
+\addlinespace
+Otro banco           & Revisar regex de normalizaci\'on          & Preprocesamiento paso~1 \\
+\addlinespace
+Moneda embebida distinta & Adaptar detecci\'on de moneda en texto  & Preprocesamiento paso~4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Comparaci\'on con la revisi\'on manual}
+
+La revisi\'on manual del resumen mensual es el m\'etodo de referencia que el
+sistema busca mejorar. Caracterizar su efectividad relativa permite estimar el
+valor pr\'actico de la automatizaci\'on.
+
+En la revisi\'on manual t\'ipica, el usuario escanea entre 40 y 70~transacciones
+por resumen buscando entradas que parezcan fuera de lugar. Esta revisi\'on enfrenta
+dos limitaciones estructurales. La primera es la \emph{falta de referencia
+expl\'icita}: detectar que un comercio cobr\'o m\'as de lo habitual requiere recordar
+cu\'anto cobraba en meses anteriores. Sin ese contexto, el usuario solo puede
+reaccionar a montos grandes en valor absoluto, no a rareza relativa al historial. La
+segunda es la \emph{carga cognitiva}: revisar 613~transacciones en 14~res\'umenes
+exhaustivamente tomar\'ia varias horas; en la pr\'actica, la mayor\'ia de los
+usuarios dedica pocos minutos al mes y atiende solo los cargos que destacan
+visualmente.
+
+Para las tres anomal\'ias sint\'eticas del experimento, el escenario de detecci\'on
+manual difiere significativamente por tipo. El cargo de RAPPI por \$71.904~ARS
+posiblemente llamar\'ia la atenci\'on de un usuario que recuerde haber pagado mucho
+menos por delivery; es la anomal\'ia m\'as perceptible en revisi\'on visual. El cargo
+duplicado de RIALTO (\$7.800~ARS exacto, misma fecha) ser\'ia dif\'icil de detectar
+manualmente: ambas instancias tienen el mismo monto y se mezclan en una lista de
+decenas de transacciones; detectarlo requiere buscar expl\'icitamente repeticiones.
+El aumento de precio de Spotify ---de USD~4.00 a USD~5.50--- casi con certeza
+pasar\'ia inadvertido: un incremento de USD~1.50 en una suscripci\'on est\'a por
+debajo del umbral perceptivo de la mayor\'ia de los usuarios en una revisi\'on
+de lista.
+
+La ventaja principal del sistema autom\'atico no reside en la potencia de detecci\'on
+individual sino en la \emph{cobertura consistente}: eval\'ua las 613~transacciones con
+los mismos criterios, sin fatiga ni sesgo perceptivo, y entrega al usuario las
+25~m\'as sospechosas ordenadas por puntaje. El tiempo total del ciclo completo es
+inferior a 2~segundos, frente a los 20--30~minutos que demandar\'ia una revisi\'on
+manual exhaustiva del mismo historial. El sistema no reemplaza la revisi\'on humana
+---las 25~alertas deben evaluarse por el usuario--- sino que la hace focalizada:
+en lugar de 613~entradas, el usuario revisa 25~casos priorizados.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Lecciones de Implementaci\'on}
+\label{sec:lecciones}
+% ─────────────────────────────────────────────────────────────────────────────
+
+La construcci\'on de la prueba de concepto dej\'o cuatro aprendizajes pr\'acticos
+relevantes para proyectos similares de detecci\'on de anomal\'ias en datos personales:
+
+\textbf{1. Features relativas en vez de montos crudos.}
+El primer prototipo us\'o el monto nominal como feature principal. En el contexto
+inflacionario del dataset (Argentina, abril~2025\,--\,abril~2026), cualquier compra
+de los \'ultimos meses recibi\'o scores de anomal\'ia elevados simplemente porque
+los montos nominales son mayores que los hist\'oricos. La soluci\'on fue descartar
+el monto absoluto como feature primaria y reemplazarlo por \texttt{ratio\_mediana}
+y \texttt{zscore\_hist}, que comparan el cargo con el historial del propio comercio.
+La inclusi\'on de \texttt{log\_monto} como feature complementaria fue necesaria solo
+para transacciones USD, donde la inflaci\'on no distorsiona la escala.
+
+\textbf{2. El par\'ametro de contaminaci\'on es un supuesto, no un dato.}
+Sin etiquetas reales, no hay forma de saber qu\'e proporci\'on del dataset es
+genuinamente an\'omala. La lecci\'on es que el umbral de corte debe tratarse como
+un par\'ametro de presentaci\'on (``cu\'antas alertas quiero ver'') m\'as que como
+un par\'ametro del modelo. El score continuo es la salida real; el flag binario es
+solo un filtro visual cuyo valor \'optimo depende de la tolerancia del usuario a
+los falsos positivos.
+
+\textbf{3. Comercios con poco historial generan falsos positivos predecibles.}
+Un comercio que aparece por primera vez en el dataset no tiene distribuci\'on
+hist\'orica propia. Si su categor\'ia es ``otros'' (heterog\'enea), el fallback
+no es representativo y el ratio puede dispararse artificialmente. La soluci\'on
+parcial implementada (umbral m\'inimo de 3~transacciones) mitiga el problema;
+una mejora futura ser\'ia etiquetar expl\'icitamente en el dashboard si el comercio
+es nuevo, para que el usuario descarte la alerta con m\'as confianza.
+
+\textbf{4. Los duplicados de SUBE requieren tratamiento especial.}
+La recarga de la tarjeta SUBE genera duplicados aparentes cuando la misma recarga
+cae en dos res\'umenes consecutivos por superposici\'on de fechas de cierre. Este
+falso positivo es sistem\'atico: aparece en todos los meses donde el cierre del
+resumen no coincide con el cierre real de la tarjeta. Una soluci\'on robusta
+ser\'ia deduplicar los res\'umenes por n\'umero de operaci\'on (si el banco lo
+exporta) en lugar de por combinaci\'on comercio+monto+fecha.
+
+\textbf{5. El umbral de detecci\'on es un par\'ametro de presentaci\'on, no del modelo.}
+Al configurar el sistema con contaminaci\'on del~2\,\%, se obten\'ian 12~alertas
+mensuales y un recall de~2/3: Spotify quedaba fuera del corte. Al elevar la
+contaminaci\'on al~4\,\%, el recall sub\'ia a~3/3 pero el usuario deb\'ia revisar
+25~tarjetas por mes. La lecci\'on es que este par\'ametro debe calibrarse en funci\'on
+de la tolerancia real del usuario ---cu\'antas alertas est\'a dispuesto a revisar---
+y no en funci\'on del recall sobre el conjunto sint\'etico. Una mejora directa
+ser\'ia exponer el umbral como un control en el dashboard
+(``mostrar las $N$ transacciones m\'as sospechosas'') en lugar de fijarlo como
+hiperpar\'ametro del modelo al momento del entrenamiento.
+
+\textbf{6. El puntaje continuo es m\'as informativo que el flag binario como salida.}
+Un dise\~no inicial del dashboard mostraba \'unicamente las transacciones con
+\texttt{is\_anomaly\,=\,1}. Cuando se ajustaba el umbral, la lista de alertas
+cambiaba de forma abrupta ---transacciones que no aparec\'ian ayer aparec\'ian hoy---
+sin que el usuario tuviera contexto para entender por qu\'e. La soluci\'on fue
+mostrar el puntaje continuo en la tabla interactiva y usar el flag solo como filtro
+de presentaci\'on inicial. Esto permite explorar el gradiente completo de rareza
+(``¿cu\'al es la transacci\'on m\'as at\'ipica justo por debajo del umbral?'') y
+detectar casos l\'imite que podr\'ian ser anomal\'ias reales no capturadas por el
+corte vigente. La recomendaci\'on general es dise\~nar interfaces de anomal\'ias que
+expongan el score continuo y usen el umbral solo como punto de partida visual.
+
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusiones y Trabajo Futuro}
 \label{sec:conclusiones}
-% TODO
+% ─────────────────────────────────────────────────────────────────────────────
+
+Este trabajo presenta un sistema completo de detecci\'on autom\'atica de anomal\'ias
+en finanzas personales que no requiere ejemplos etiquetados previos de fraude o error.
+La representaci\'on mediante features relativas al historial del propio usuario
+---en lugar de montos crudos--- permite detectar rareza contextual con independencia
+del nivel de precios absoluto, lo que lo hace aplicable en entornos de inflaci\'on
+alta. Los resultados sobre 613~transacciones reales con tres anomal\'ias sint\'eticas
+inyectadas confirman un recall de 3/3~(100\,\%), con todos los casos detectados dentro
+del percentil~97 del puntaje de anomal\'ia.
+
+El estudio de ablaci\'on es el aporte metodol\'ogico m\'as relevante del trabajo:
+muestra que los tres tipos de anomal\'ia objetivo dependen de subconjuntos
+complementarios de features, y que la inclusi\'on de \texttt{es\_duplicado} sin
+\texttt{log\_monto} genera una interacci\'on negativa que hace que la anomal\'ia de
+aumento de precio en USD quede fuera del umbral de corte. Esta interacci\'on no
+ser\'ia visible si solo se reportaran m\'etricas agregadas.
+
+El sistema implementado cubre el ciclo completo desde datos crudos del banco hasta
+un dashboard interactivo con explicaciones por alerta, en menos de 2~segundos de
+tiempo de ejecuci\'on. Las principales limitaciones identificadas son: la dependencia
+de un par\'ametro de contaminaci\'on arbitrario, los falsos positivos sistem\'aticos
+de SUBE por duplicados entre res\'umenes consecutivos, y la debilidad del fallback
+por categor\'ia para comercios nuevos.
+
+Como trabajo futuro se identifican tres l\'ineas prioritarias. Primero,
+\textbf{incorporar SHAP}~\cite{lodhi2026explainable} para reemplazar las
+explicaciones heur\'isticas actuales del dashboard por contribuciones cuantitativas
+por feature, siguiendo el enfoque de Lodhi~(2026) para auditor\'ia bancaria.
+Segundo, \textbf{calibraci\'on del umbral por retroalimentaci\'on}: cuando el usuario
+descarta una alerta como falso positivo, esa se\~nal puede usarse para ajustar el
+umbral de presentaci\'on din\'amicamente sin re-entrenar el modelo. Tercero,
+\textbf{deduplicaci\'on por n\'umero de operaci\'on} para eliminar el falso positivo
+sistem\'atico de SUBE.
+
+El principal aporte t\'ecnico de este trabajo es demostrar que la representaci\'on
+correcta de los datos es m\'as determinante que la elecci\'on del algoritmo de
+detecci\'on. Isolation Forest es un m\'etodo est\'andar de 2008; su eficacia en
+este contexto no depende de refinamientos al algoritmo sino de que las features
+capturan la rareza correcta para cada tipo de anomal\'ia objetivo: rareza relativa
+al historial del comercio para montos at\'ipicos y aumentos de precio, e identidad
+exacta para duplicados. Este principio es transferible a cualquier m\'etodo de
+detecci\'on de anomal\'ias no supervisado.
+
+El protocolo de evaluaci\'on con diversidad de dificultad ---una anomal\'ia trivial
+por magnitud (RAPPI), una en el l\'imite del umbral (Spotify), y una indetectable
+sin su feature espec\'ifica (RIALTO)--- ofrece una validaci\'on m\'as exigente
+que evaluar solo con casos sencillos. Trabajos futuros que extiendan este sistema
+a nuevos usuarios o contextos deber\'ian mantener este principio: incluir al menos
+una anomal\'ia de cada tipo objetivo con dificultades de detecci\'on
+deliberadamente distintas.
+
+Una extensi\'on de mayor alcance ser\'ia escalar a m\'ultiples usuarios. La
+literatura reciente sugiere que modelos federados o con aprendizaje por transferencia
+podr\'ian combinar las ventajas del modelo por-usuario (sensible al historial
+individual) con las de un modelo global (m\'as robusto en la arranque para usuarios
+nuevos)~\cite{feng2026machine, gamal2026enhancing, hassan2026transfer}.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
