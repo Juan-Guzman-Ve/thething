@@ -24,11 +24,10 @@ precio no avisados, cargos duplicados, montos atípicos) usando un modelo no sup
   del comercio (o de la categoría si el comercio tiene pocas transacciones), más un
   flag de duplicado exacto (mismo comercio+monto+fecha). Descarta pagos/devoluciones/
   bonificaciones (monto ≤ 0), que no son cargos evaluables como anómalos.
-- `src/train_model.py` — entrena un Isolation Forest (localmente, no en Colab; ver
-  "Decisiones") sobre `data/dataset_features.csv` usando solo las features relativas
-  (ratio/z-score vs. historial, duplicado exacto — el monto crudo queda afuera porque
-  su escala en pesos con inflación domina el aislamiento del árbol). Genera
-  `data/dataset_scored.csv` con el score de anomalía de cada transacción.
+- `src/train.py` — entrena un Isolation Forest (localmente, no en Colab; ver
+  "Decisiones") sobre `data/transactions.csv` usando features relativas con
+  `StandardScaler` (log_monto, ratio_mediana, zscore_hist, es_duplicado). Genera
+  `data/scores.csv` con el score de anomalía de cada transacción. Usado por `tools/train.ps1`.
 - `referencias_bibliograficas.md` — 20 referencias académicas (6 de 2026) para la entrega de Etapa 1.
 - `paper/` — proyecto LaTeX del paper (formato IEEE, dos columnas), pensado para subir/sincronizar con Overleaf.
   `main.tex` tiene el esqueleto (secciones vacías con `% TODO`) más una sección "Investigación Bibliográfica"
@@ -86,7 +85,7 @@ muy poco historial.
 1. ~~Preprocesar todos los `notebooks/resumen_tarjeta_cierre_*.csv` en un único dataset.~~
    Hecho, ver `src/preprocess.py` → `data/dataset_features.csv` (657 cargos, no incluye
    hora por no estar disponible en los datos reales, solo `fecha`).
-2. ~~Entrenar Isolation Forest (scikit-learn).~~ Hecho, ver `src/train_model.py` (local, no Colab).
+2. ~~Entrenar Isolation Forest (scikit-learn).~~ Hecho, ver `src/train.py` (local, no Colab).
 3. ~~Evaluar contra `data/eval_labels.csv`.~~ Hecho — ver "Primer modelo (Isolation Forest)" arriba.
 4. ~~Redactar esqueleto del paper + marco teórico.~~ Hecho, ver `paper/main.tex` — falta completar
    Metodología/Resultados/Conclusiones con lo anterior.

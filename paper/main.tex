@@ -900,6 +900,19 @@ cambi\'o de forma permanente sus h\'abitos de consumo (por ejemplo, empieza a co
 en supermercados m\'as caros). En ese caso, las primeras compras en el nuevo comercio
 o a los nuevos precios tendr\'an ratios elevados hasta que el historial se actualice.
 
+\textbf{Pipeline batch: entrenamiento e inferencia acoplados.}  El sistema actual
+recalcula las estad\'isticas de referencia por comercio y reentrena el modelo en
+cada ejecuci\'on, utilizando todo el historial disponible. Esto presenta dos
+problemas a medida que los datos se acumulan con el tiempo: (a)~las estad\'isticas
+de referencia incorporan per\'iodos con precios muy distintos (especialmente
+relevante en contextos de inflaci\'on alta), distorsionando los ratios de meses
+recientes; y (b)~el modelo aprende impl\'icitamente a tratar anomal\'ias ya
+confirmadas del pasado como transacciones normales, al no disponer de mecanismo
+para excluirlas del conjunto de entrenamiento. Una arquitectura de producci\'on
+separar\'ia ambas etapas: las estad\'isticas de referencia se calcular\'ian sobre
+una ventana deslizante de 12--24 meses, y el modelo serializado se actualizar\'ia
+mensualmente de forma independiente a la inferencia.
+
 \subsection{Implicaciones para el dise\~no de sistemas similares}
 
 El estudio de ablaci\'on tiene implicaciones pr\'acticas directas para quien quiera
@@ -1101,6 +1114,13 @@ descarta una alerta como falso positivo, esa se\~nal puede usarse para ajustar e
 umbral de presentaci\'on din\'amicamente sin re-entrenar el modelo. Tercero,
 \textbf{deduplicaci\'on por n\'umero de operaci\'on} para eliminar el falso positivo
 sistem\'atico de SUBE.
+
+Una cuarta l\'inea de trabajo futuro es la \textbf{separaci\'on de entrenamiento
+e inferencia}: serializar el modelo entrenado y las estad\'isticas de referencia
+por comercio de forma independiente, de modo que el uso cotidiano del sistema
+consista \'unicamente en cargar esos artefactos y scorear el CSV del mes, sin
+necesidad de acceder al historial completo en cada ejecuci\'on. Esto eliminar\'ia
+tambi\'en el problema de acumulaci\'on hist\'orica mencionado en las limitaciones.
 
 El principal aporte t\'ecnico de este trabajo es demostrar que la representaci\'on
 correcta de los datos es m\'as determinante que la elecci\'on del algoritmo de

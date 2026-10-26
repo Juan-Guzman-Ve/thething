@@ -182,12 +182,17 @@ function buildHistogram(rows) {
     .reduce((min, s) => s < min ? s : min, Infinity);
 
   const BUCKETS = 30;
-  const bw      = (maxS - minS) / BUCKETS;
+  const range   = maxS - minS;
+  const axisMin = minS - range * 0.08;  // 8% de padding a la izquierda para que el umbral no quede en el borde
+  const axisMax = maxS;
+  const axisRange = axisMax - axisMin;
+  const bw      = axisRange / BUCKETS;
   const counts  = Array(BUCKETS).fill(0);
   const flagBkt = Array(BUCKETS).fill(0);
 
   scores.forEach((s, i) => {
-    const b = Math.min(Math.floor((s - minS) / bw), BUCKETS - 1);
+    const b = Math.min(Math.floor((s - axisMin) / bw), BUCKETS - 1);
+    if (b < 0) return;
     counts[b]++;
     if (rows[i].is_anomaly === '1') flagBkt[b]++;
   });
@@ -196,7 +201,7 @@ function buildHistogram(rows) {
   const W = 800, H = 140, ML = 44, MR = 20, MT = 12, MB = 36;
   const CW = W - ML - MR, CH = H - MT - MB;
   const bpx = CW / BUCKETS;
-  const thX = isFinite(threshold) ? ML + (threshold - minS) / (maxS - minS) * CW : null;
+  const thX = isFinite(threshold) ? ML + (threshold - axisMin) / axisRange * CW : null;
 
   let out = '<g font-family="IBM Plex Mono,monospace">';
 
@@ -225,7 +230,7 @@ function buildHistogram(rows) {
 
   // X-axis labels
   [0, 0.25, 0.5, 0.75, 1].forEach(t => {
-    const val = minS + t * (maxS - minS);
+    const val = axisMin + t * axisRange;
     const x   = ML + t * CW;
     out += `<text x="${x.toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" fill="#7880A2">${val.toFixed(3)}</text>`;
   });

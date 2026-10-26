@@ -7,7 +7,7 @@
 
 ## Etapa 2 — hasta 6/10 (entrega: esqueleto del paper + marco teórico)
 - [x] Preprocesar datos (features: monto, día/hora, desvío vs. historial por comercio/categoría) (`src/preprocess.py` → `data/dataset_features.csv`)
-- [x] Entrenar primer modelo Isolation Forest (scikit-learn) localmente (`src/train_model.py`)
+- [x] Entrenar primer modelo Isolation Forest (scikit-learn) localmente (`src/train.py`)
 - [x] Evaluar el modelo contra `data/eval_labels.csv`
 - [x] Redactar esqueleto del paper + marco teórico (`paper/main.tex`)
 
